@@ -1,0 +1,20 @@
+﻿<UserControl x:Class="NuzmonUI.View.UserControls.MenuBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="clr-namespace:NuzmonUI.View.UserControls"
+             mc:Ignorable="d" 
+             Height="25" d:DesignWidth="640">
+    <Grid>
+        <Menu>
+            <MenuItem Header="Nuzlocke" FontSize="15"/>
+            <MenuItem Header="Box" FontSize="15"/>
+            <MenuItem Header="Calculator" FontSize="15"/>
+            <MenuItem Header="Stats" FontSize="15"/>
+            <MenuItem Header="Rules" FontSize="15"/>
+            <MenuItem Header="Settings" FontSize="15"/>
+
+        </Menu>
+    </Grid>
+</UserControl>
