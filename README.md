@@ -1,0 +1,2 @@
+# Nuzmon
+Ultimate Nuzlocke Tracker
