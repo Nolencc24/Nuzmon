@@ -58,8 +58,11 @@
     <Compile Include="View\UserControls\MenuBar.xaml.cs">
       <DependentUpon>MenuBar.xaml</DependentUpon>
     </Compile>
-    <Compile Include="View\UserControls\NuzlockePage.xaml.cs">
-      <DependentUpon>NuzlockePage.xaml</DependentUpon>
+    <Compile Include="View\UserControls\NuzlockePage\PartyViewer.xaml.cs">
+      <DependentUpon>PartyViewer.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="View\UserControls\NuzlockePage\RouteViewer.xaml.cs">
+      <DependentUpon>RouteViewer.xaml</DependentUpon>
     </Compile>
     <Page Include="MainWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
@@ -77,7 +80,11 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
-    <Page Include="View\UserControls\NuzlockePage.xaml">
+    <Page Include="View\UserControls\NuzlockePage\PartyViewer.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Include="View\UserControls\NuzlockePage\RouteViewer.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
@@ -111,6 +118,9 @@
   <ItemGroup>
     <Folder Include="Model\" />
     <Folder Include="ViewModel\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="UIAssets\pokeball.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

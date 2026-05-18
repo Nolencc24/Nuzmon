@@ -13,14 +13,14 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 
-namespace NuzmonUI.View.UserControls
+namespace NuzmonUI.View.UserControls.NuzlockePage
 {
     /// <summary>
-    /// Interaction logic for NuzlockePage.xaml
+    /// Interaction logic for RouteViewer.xaml
     /// </summary>
-    public partial class NuzlockePage : UserControl
+    public partial class RouteViewer : UserControl
     {
-        public NuzlockePage()
+        public RouteViewer()
         {
             InitializeComponent();
         }
