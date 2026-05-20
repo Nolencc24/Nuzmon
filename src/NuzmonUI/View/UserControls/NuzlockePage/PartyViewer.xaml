@@ -6,7 +6,7 @@
              xmlns:local="clr-namespace:NuzmonUI.View.UserControls.NuzlockePage"
              mc:Ignorable="d" 
              d:DesignHeight="440" Width="75">
-    <Grid>
+    <Grid Background="Transparent">
 
         <Grid.RowDefinitions>
             <RowDefinition Height="69"/>
@@ -17,22 +17,22 @@
             <RowDefinition Height="69"/>
         </Grid.RowDefinitions>
 
-        <Image Grid.Row="0" Source="/UIAssets/pokeball.png" 
+        <Image Grid.Row="0" Source="/NuzmonUI;component/UIAssets/pokeball.png"
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        
-        <Image Grid.Row="1" Source="/UIAssets/pokeball.png" 
+
+        <Image Grid.Row="1" Source="/NuzmonUI;component/UIAssets/pokeball.png"
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        
-        <Image Grid.Row="2" Source="/UIAssets/pokeball.png" 
+
+        <Image Grid.Row="2" Source="/NuzmonUI;component/UIAssets/pokeball.png"
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        
-        <Image Grid.Row="3" Source="/UIAssets/pokeball.png" 
+
+        <Image Grid.Row="3" Source="/NuzmonUI;component/UIAssets/pokeball.png"
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        
-        <Image Grid.Row="4" Source="/UIAssets/pokeball.png" 
+
+        <Image Grid.Row="4" Source="/NuzmonUI;component/UIAssets/pokeball.png"
                HorizontalAlignment="Center" VerticalAlignment="Center"/>
-        
-        <Image Grid.Row="5" Source="/UIAssets/pokeball.png" 
+
+        <Image Grid.Row="5" Source="/NuzmonUI;component/UIAssets/pokeball.png"
                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
     </Grid>
 </UserControl>
