@@ -1,3 +1,6 @@
 <Solution>
+  <Project Path="NuzmonCore/NuzmonCore.csproj" Id="a6278cc1-3b52-4e8c-a53d-b6c4d81d7f97" />
+  <Project Path="NuzmonCV/NuzmonCV.csproj" Id="cc82dd56-7756-4886-8282-86df8573a5f8" />
+  <Project Path="NuzmonTracker.Data/NuzmonTracker.Data.csproj" Id="dc17861d-4d55-4929-882f-e49a7f7bf1a1" />
   <Project Path="NuzmonUI/NuzmonUI.csproj" />
 </Solution>

@@ -18,6 +18,22 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.8">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NuzmonCore\NuzmonCore.csproj" />
+    <ProjectReference Include="..\NuzmonCV\NuzmonCV.csproj" />
+    <ProjectReference Include="..\NuzmonTracker.Data\NuzmonTracker.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Resource Include="UIAssets\pokeball.png" />
   </ItemGroup>
 
