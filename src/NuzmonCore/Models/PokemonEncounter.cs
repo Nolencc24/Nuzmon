@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace NuzmonCore.Models
+﻿namespace NuzmonCore.Models
 {
     public class PokemonEncounter
     {
