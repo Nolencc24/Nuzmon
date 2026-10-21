@@ -1,0 +1,9 @@
+ss_dump.txt
+ss_dump.txt.tmp
+__pycache__/
+*.pyc
+.venv/
+*.nds
+*.dsv
+*.sav
+*.ds?
