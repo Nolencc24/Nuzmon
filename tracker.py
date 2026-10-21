@@ -18,9 +18,9 @@ import tempfile
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QMainWindow, QProgressBar, QTabWidget, QVBoxLayout, QWidget)
+                               QMainWindow, QProgressBar, QVBoxLayout, QWidget)
 
-from decoder import NATURES, Pokemon, read_dump
+from decoder import NATURES, IncompleteDump, Pokemon, read_dump
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
@@ -29,10 +29,11 @@ NATURE_STATS = ["Atk", "Def", "Spe", "SpA", "SpD"]          # order used by natu
 STYLE = """
 QWidget { background: #16181d; color: #d8dce4; font-family: 'Segoe UI', sans-serif; font-size: 12px; }
 QLabel { background: transparent; }
-QTabWidget::pane { border: none; }
-QTabBar::tab { background: #22252c; padding: 6px 18px; border-radius: 4px; margin-right: 4px; }
-QTabBar::tab:selected { background: #3a6ff7; color: white; }
 QFrame#card { background: #1f2229; border: 1px solid #2c3039; border-radius: 8px; }
+QFrame#row  { background: #1f2229; border: 1px solid #2c3039; border-radius: 6px; }
+QFrame#infopanel { background: #1a1d23; border: 1px dashed #343946; border-radius: 8px; }
+QLabel#section { font-size: 13px; font-weight: 600; color: #9aa3b5; letter-spacing: 1px; }
+QLabel#rowname { font-weight: 600; }
 QLabel#name { font-size: 15px; font-weight: 600; }
 QLabel#dim  { color: #7d8492; }
 QLabel#cell { font-family: Consolas, 'DejaVu Sans Mono', monospace; }
@@ -48,15 +49,22 @@ def nature_effect(nature: str) -> tuple[str | None, str | None]:
 
 
 class Card(QFrame):
-    """One Pokémon. Widgets are built once and updated in place, so nothing flickers."""
+    """One Pokémon, fully expanded. Widgets are built once and updated in place, so nothing flickers.
 
-    def __init__(self):
+    wide=True lays the card out in three columns (summary | stats | moves) instead of
+    one tall column, which is how the lead Pokémon is shown.
+    """
+
+    def __init__(self, wide: bool = False):
         super().__init__()
         self.setObjectName("card")
         self.setMinimumWidth(270)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 10)
+        outer = QHBoxLayout(self) if wide else QVBoxLayout(self)
+        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setSpacing(18 if wide else 6)
+        lay = QVBoxLayout()          # column 1: name, HP, nature/ability
         lay.setSpacing(6)
+        outer.addLayout(lay, 3 if wide else 0)
 
         top = QHBoxLayout()
         self.name = QLabel(objectName="name")
@@ -91,13 +99,25 @@ class Card(QFrame):
                     lbl.setAlignment(Qt.AlignRight)
                 grid.addWidget(lbl, r, c)
             self.cells[stat] = row
-        lay.addLayout(grid)
-
         self.extra = QLabel(objectName="dim")
-        lay.addWidget(self.extra)
+        self.extra.setWordWrap(True)
         self.moves = QLabel(objectName="cell")
-        lay.addWidget(self.moves)
-        lay.addStretch()
+        if wide:
+            lay.addWidget(self.extra)
+            lay.addStretch()
+            col2, col3 = QVBoxLayout(), QVBoxLayout()   # column 2: stat grid, column 3: moves
+            col2.addLayout(grid)
+            col2.addStretch()
+            col3.addWidget(QLabel("Moves", objectName="dim"))
+            col3.addWidget(self.moves)
+            col3.addStretch()
+            outer.addLayout(col2, 3)
+            outer.addLayout(col3, 2)
+        else:
+            lay.addLayout(grid)
+            lay.addWidget(self.extra)
+            lay.addWidget(self.moves)
+            lay.addStretch()
         self.show_mon(None)
 
     def show_mon(self, m: Pokemon | None):
@@ -141,18 +161,97 @@ class Card(QFrame):
         self.moves.setText("\n".join(f"{mv:<16}{pp:>3} PP" for mv, pp in m.moves) or "(no moves)")
 
 
-class Team(QWidget):
+class Row(QFrame):
+    """A thin one-line summary for party slots 2-6: name, level, HP bar, status."""
+
     def __init__(self):
         super().__init__()
-        grid = QGridLayout(self)
-        grid.setSpacing(10)
-        self.cards = [Card() for _ in range(6)]
-        for i, c in enumerate(self.cards):
-            grid.addWidget(c, i // 3, i % 3)
+        self.setObjectName("row")
+        self.setFixedHeight(34)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 4, 10, 4)
+        lay.setSpacing(10)
+        self.name = QLabel(objectName="rowname")
+        self.name.setMinimumWidth(110)
+        self.level = QLabel(objectName="dim")
+        self.level.setMinimumWidth(40)
+        self.hpbar = QProgressBar(textVisible=False)
+        self.hpbar.setFixedHeight(8)
+        self.hptext = QLabel(objectName="cell")
+        self.hptext.setMinimumWidth(70)
+        self.hptext.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.status = QLabel(objectName="dim")
+        self.status.setMinimumWidth(70)
+        lay.addWidget(self.name)
+        lay.addWidget(self.level)
+        lay.addWidget(self.hpbar, 1)
+        lay.addWidget(self.hptext)
+        lay.addWidget(self.status)
+        self.show_mon(None)
+
+    def show_mon(self, m: Pokemon | None):
+        has = m is not None
+        for w in (self.hpbar, self.hptext, self.status):
+            w.setVisible(has)
+        if not has:
+            self.name.setText("—")
+            self.level.setText("")
+            return
+        self.name.setText("Egg" if m.is_egg else f"{m.species}{' ★' if m.shiny else ''}")
+        self.level.setText(f"Lv {m.level}" if m.level is not None else "")
+        hp, mx = m.hp or 0, m.max_hp or 1
+        pct = hp / mx
+        color = "#3ccf6e" if pct > 0.5 else "#f2c94c" if pct > 0.2 else "#eb5757"
+        self.hpbar.setRange(0, mx)
+        self.hpbar.setValue(hp)
+        self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
+        self.hptext.setText(f"{hp}/{mx}")
+        self.status.setText("" if m.status == "OK" else m.status)
+
+
+class TeamSection(QWidget):
+    """Slot 1 as a big expanded card on the left, slots 2-6 as thin rows on the right."""
+
+    def __init__(self, title: str):
+        super().__init__()
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+        outer.addWidget(QLabel(title.upper(), objectName="section"))
+
+        body = QHBoxLayout()
+        body.setSpacing(10)
+        self.lead = Card(wide=True)
+        rows = QVBoxLayout()
+        rows.setSpacing(4)
+        self.rows = [Row() for _ in range(5)]
+        for r in self.rows:
+            rows.addWidget(r)
+        rows.addStretch()
+        body.addWidget(self.lead, 3)   # lead card gets 3/5 of the width...
+        body.addLayout(rows, 2)        # ...the rows get 2/5
+        outer.addLayout(body)
 
     def show_team(self, mons):
-        for card, m in zip(self.cards, mons):
-            card.show_mon(m)
+        self.lead.show_mon(mons[0])
+        for row, m in zip(self.rows, mons[1:]):
+            row.show_mon(m)
+
+
+class InfoPanel(QFrame):
+    """The open space between the two teams. Add your own widgets to self.body."""
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("infopanel")
+        self.setMinimumHeight(110)
+        self.body = QVBoxLayout(self)
+        self.body.setContentsMargins(14, 10, 14, 10)
+        self.body.addWidget(QLabel("BATTLE INFO", objectName="section"))
+        self.placeholder = QLabel("Space for extra info: matchups, damage calcs, encounter notes…",
+                                  objectName="dim")
+        self.body.addWidget(self.placeholder)
+        self.body.addStretch()
 
 
 class Tracker(QMainWindow):
@@ -164,11 +263,14 @@ class Tracker(QMainWindow):
 
         root = QWidget()
         lay = QVBoxLayout(root)
-        self.tabs = QTabWidget()
-        self.party, self.enemy = Team(), Team()
-        self.tabs.addTab(self.party, "Your party")
-        self.tabs.addTab(self.enemy, "Opponent")
-        lay.addWidget(self.tabs)
+        lay.setContentsMargins(12, 10, 12, 8)
+        lay.setSpacing(10)
+        self.party = TeamSection("Your party")
+        self.info = InfoPanel()
+        self.enemy = TeamSection("Opponent")
+        lay.addWidget(self.party)
+        lay.addWidget(self.info, 1)    # the middle panel takes up any spare height
+        lay.addWidget(self.enemy)
         self.status = QLabel(objectName="dim")
         lay.addWidget(self.status)
         self.setCentralWidget(root)
@@ -187,8 +289,8 @@ class Tracker(QMainWindow):
             return
         try:
             data = read_dump(self.path)
-        except OSError:
-            return  # file was being swapped; try again next tick
+        except (OSError, IncompleteDump):
+            return  # caught tracker.lua mid-write; try again next tick
         self.last_mtime = mtime
 
         self.party.show_team(data["party"])
@@ -215,7 +317,7 @@ def write_demo_file() -> str:
     empty = "00" * 236
     lines = ["frame=0", "game=DEMO", "base=0x00000000", f"P1={p1}", f"P2={p2}"]
     lines += [f"P{i}={empty}" for i in range(3, 7)]
-    lines += [f"E1={p2}"] + [f"E{i}={empty}" for i in range(2, 7)]
+    lines += [f"E1={p2}", f"E2={p1}"] + [f"E{i}={empty}" for i in range(3, 7)]
     path = os.path.join(tempfile.gettempdir(), "ss_dump_demo.txt")
     with open(path, "w", encoding="ascii") as f:
         f.write("\n".join(lines) + "\n")
@@ -231,7 +333,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     win = Tracker(write_demo_file() if args.demo else args.file)
-    win.resize(900, 640)
+    win.resize(1000, 760)
     win.show()
     sys.exit(app.exec())
 

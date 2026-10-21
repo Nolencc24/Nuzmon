@@ -181,24 +181,35 @@ def parse(raw: bytes, already_decrypted: bool = False) -> Pokemon | None:
 
 # ---------------------------------------------------------------- dump file
 
+class IncompleteDump(Exception):
+    """The dump file was read while tracker.lua was still writing it. Just retry."""
+
+
 def read_dump(path: str) -> dict:
     """Parse the text file written by tracker.lua.
 
     Returns {"meta": {...}, "party": [Pokemon|None x6], "enemy": [Pokemon|None x6]}.
+    Raises IncompleteDump if the file was caught mid-write (tracker.lua writes it in place).
     """
+    with open(path, "r", encoding="ascii", errors="replace") as f:
+        lines = f.read().split("\n")
+
+    slot_lines = [l for l in lines if l[:1] in ("P", "E") and l[1:2].isdigit()]
+    if len(slot_lines) != 12 or any(len(l) != 3 + 2 * PARTY_SIZE for l in slot_lines):
+        raise IncompleteDump(path)
+
     meta, party, enemy = {}, [None] * 6, [None] * 6
-    with open(path, "r", encoding="ascii") as f:
-        for line in f:
-            key, _, val = line.strip().partition("=")
-            if not key:
-                continue
-            if key[0] in "PE" and key[1:].isdigit():
-                slot = int(key[1:]) - 1
-                try:
-                    mon = parse(bytes.fromhex(val))
-                except ValueError:
-                    mon = None
-                (party if key[0] == "P" else enemy)[slot] = mon
-            else:
-                meta[key] = val
+    for line in lines:
+        key, _, val = line.strip().partition("=")
+        if not key:
+            continue
+        if key in [l[:2] for l in slot_lines]:
+            slot = int(key[1:]) - 1
+            try:
+                mon = parse(bytes.fromhex(val))
+            except ValueError:
+                mon = None
+            (party if key[0] == "P" else enemy)[slot] = mon
+        else:
+            meta[key] = val
     return {"meta": meta, "party": party, "enemy": enemy}
