@@ -112,6 +112,7 @@ class Pokemon:
     hp: int | None = None
     max_hp: int | None = None
     stats: dict = field(default_factory=dict)
+    in_battle: bool = False   # True when HP/status come from the live in-battle copy
 
 
 def _status_text(b: int) -> str:

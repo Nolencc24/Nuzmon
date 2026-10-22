@@ -4,16 +4,19 @@ Reads your party and the opponent's Pokémon straight out of DeSmuME's memory an
 stats, IVs, EVs, HP, nature, ability, moves and Hidden Power in a separate window.
 
 ```
-DeSmuME ──(tracker.lua dumps raw bytes)──> ss_dump.txt ──(tracker.py decrypts)──> window
+DeSmuME's memory ──(memreader.py reads it from outside)──> decoder.py ──> window
 ```
+Nothing runs inside the emulator, so fast forward stays smooth. The Lua script is still
+included as a fallback (`--lua`).
 
 ## Files
 
 | File | What it does |
 |---|---|
-| `tracker.lua` | Runs inside DeSmuME. Writes the encrypted party/enemy bytes to `ss_dump.txt` 4× a second. |
+| `memreader.py` | Finds DeSmuME, locates the DS's RAM inside it, and reads the party/enemy bytes. |
+| `tracker.lua` | Fallback only: dumps the same bytes to `ss_dump.txt` from inside DeSmuME (slows fast forward). |
 | `decoder.py` | Decrypts and parses Gen 4 Pokémon data (checksum, unshuffle, battle stats). |
-| `tracker.py` | The window. Watches `ss_dump.txt` and redraws when it changes. |
+| `tracker.py` | The window. Polls DeSmuME 4× a second and redraws when anything changes. |
 | `names.py` | Species, move, ability and nature names. |
 | `test_decoder.py` | Checks the decoder against real Gen 4 Pokémon. |
 
@@ -27,21 +30,28 @@ DeSmuME ──(tracker.lua dumps raw bytes)──> ss_dump.txt ──(tracker.py
 ## Running it
 
 1. Open SoulSilver in DeSmuME and load your save (get past the title screen).
-2. **Tools → Lua Scripting → New Lua Script Window**, browse to `tracker.lua`, click **Run**.
-   A small "tracker" label appears in the corner of the game screen.
-3. Run `python tracker.py`.
+2. Run `python tracker.py`. It finds DeSmuME by itself; no Lua script needed.
+
+Use 64-bit Python. If DeSmuME runs as administrator, run the tracker as administrator too.
+If you have more than one DeSmuME open, pass the right one with `--pid <process id>`
+(from Task Manager → Details).
+
+Fallback: load `tracker.lua` in DeSmuME (**Tools → Lua Scripting**) and run `python tracker.py --lua`.
 
 The bottom bar shows how many slots decoded. Every slot shown has passed the game's own
 checksum, so if a Pokémon appears, the data is correct.
 
 ## Troubleshooting
 
-- **"Waiting for ss_dump.txt"** — DeSmuME may be writing the file somewhere else. Set
+- **"no SoulSilver/HeartGold RAM was found yet"** — load your save; the tracker locks on once
+  you're past the title screen and keeps retrying until then.
+- **"Waiting for ss_dump.txt"** (`--lua` mode) — DeSmuME may be writing the file somewhere else. Set
   `OUTPUT_FILE` in `tracker.lua` to a full path (e.g. `C:/tracker/ss_dump.txt`) and run
-  `python tracker.py --file C:/tracker/ss_dump.txt`.
+  `python tracker.py --lua --file C:/tracker/ss_dump.txt`.
 - **"0 party slots decoded"** — on the title screen this is normal. In-game, the address is
-  wrong for your ROM. Check the game code printed in the Lua console: US SoulSilver is
-  `IPGE`. For a European ROM change `BASE_POINTER` to `0x021D110C`.
+  wrong for your ROM. Check the game code in the status bar: US SoulSilver is `IPGE`.
+  European ROMs are detected automatically in direct mode; in `--lua` mode change
+  `BASE_POINTER` to `0x021D110C`.
 - **Opponent tab shows an old Pokémon outside battle** — the game leaves the last battle's
   data in memory. Expected for now.
 

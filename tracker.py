@@ -1,11 +1,12 @@
 """
 SoulSilver tracker window.
 
-Reads the dump file written by tracker.lua (running inside DeSmuME), decrypts it
-with decoder.py, and shows your party and the opponent in a separate window.
+Reads your party and the opponent straight out of DeSmuME's memory (no Lua script
+needed), decrypts them with decoder.py, and shows them in a separate window.
 
-    python tracker.py                    # watches ss_dump.txt next to this file
-    python tracker.py --file C:/path/ss_dump.txt
+    python tracker.py                    # read DeSmuME directly (recommended)
+    python tracker.py --lua              # read ss_dump.txt written by tracker.lua instead
+    python tracker.py --lua --file C:/path/ss_dump.txt
     python tracker.py --demo             # sample data, no emulator needed
 """
 
@@ -254,11 +255,34 @@ class InfoPanel(QFrame):
         self.body.addStretch()
 
 
-class Tracker(QMainWindow):
+class FileSource:
+    """Data source: the ss_dump.txt file written by tracker.lua."""
+
     def __init__(self, path: str):
-        super().__init__()
         self.path = path
         self.last_mtime = None
+
+    def poll(self):
+        """Returns (data or None, status message or None). data is None when nothing changed."""
+        try:
+            mtime = os.path.getmtime(self.path)
+        except OSError:
+            return None, f"Waiting for {self.path} … is tracker.lua running in DeSmuME?"
+        if mtime == self.last_mtime:
+            return None, None
+        try:
+            data = read_dump(self.path)
+        except (OSError, IncompleteDump):
+            return None, None  # caught tracker.lua mid-write; try again next tick
+        self.last_mtime = mtime
+        data["meta"]["source"] = os.path.basename(self.path)
+        return data, None
+
+
+class Tracker(QMainWindow):
+    def __init__(self, source):
+        super().__init__()
+        self.source = source
         self.setWindowTitle("SoulSilver Tracker")
 
         root = QWidget()
@@ -280,18 +304,11 @@ class Tracker(QMainWindow):
         self.poll()
 
     def poll(self):
-        try:
-            mtime = os.path.getmtime(self.path)
-        except OSError:
-            self.status.setText(f"Waiting for {self.path} … is tracker.lua running in DeSmuME?")
+        data, message = self.source.poll()
+        if message:
+            self.status.setText(message)
+        if data is None:
             return
-        if mtime == self.last_mtime:
-            return
-        try:
-            data = read_dump(self.path)
-        except (OSError, IncompleteDump):
-            return  # caught tracker.lua mid-write; try again next tick
-        self.last_mtime = mtime
 
         self.party.show_team(data["party"])
         self.enemy.show_team(data["enemy"])
@@ -299,11 +316,11 @@ class Tracker(QMainWindow):
         n_party = sum(m is not None for m in data["party"])
         n_enemy = sum(m is not None for m in data["enemy"])
         meta = data["meta"]
-        msg = (f"Game {meta.get('game', '?')}  ·  base {meta.get('base', '?')}  ·  "
-               f"frame {meta.get('frame', '?')}  ·  {n_party} party / {n_enemy} opponent slots decoded")
+        msg = (f"{meta.get('source', '')}  ·  game {meta.get('game', '?')}  ·  base {meta.get('base', '?')}  ·  "
+               f"{n_party} party / {n_enemy} opponent slots decoded")
         if n_party == 0:
             msg += ("   ⚠ nothing passed the checksum: you may be on the title screen, "
-                    "or the address in tracker.lua is wrong for your ROM")
+                    "or the address is wrong for your ROM")
         self.status.setText(msg)
 
 
@@ -326,13 +343,23 @@ def write_demo_file() -> str:
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--file", default=os.path.join(HERE, "ss_dump.txt"), help="dump file written by tracker.lua")
+    ap.add_argument("--lua", action="store_true", help="read the file written by tracker.lua instead of DeSmuME's memory")
+    ap.add_argument("--file", default=os.path.join(HERE, "ss_dump.txt"), help="dump file for --lua mode")
+    ap.add_argument("--pid", type=int, help="DeSmuME process ID, if auto-detection picks the wrong one")
     ap.add_argument("--demo", action="store_true", help="show sample data instead of reading the emulator")
     args = ap.parse_args()
 
+    if args.demo:
+        source = FileSource(write_demo_file())
+    elif args.lua:
+        source = FileSource(args.file)
+    else:
+        from memreader import MemorySource
+        source = MemorySource(pid=args.pid)
+
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
-    win = Tracker(write_demo_file() if args.demo else args.file)
+    win = Tracker(source)
     win.resize(1000, 760)
     win.show()
     sys.exit(app.exec())
