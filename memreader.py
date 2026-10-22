@@ -46,6 +46,8 @@ CHUNK = 16 * 1024 * 1024
 # In-battle copy of each active Pokémon ("BattleMon" in the pret/pokeheartgold decompilation).
 # During a battle the game updates HP here and only writes it back to the party afterwards.
 BM_SPECIES, BM_LEVEL, BM_HP, BM_MAX_HP, BM_PID, BM_STATUS = 0x00, 0x34, 0x4C, 0x50, 0x68, 0x6C
+BM_PP = 0x2C
+BM_SIZE = 0xC0   # battleMons[4]: [you, foe, your partner, foe's partner] (partners only in doubles)
 
 
 class NotFound(Exception):
@@ -263,6 +265,7 @@ class BattleHP:
 
     def __init__(self):
         self.seen = {}    # pid -> {"party" or RAM offset: (value, time it last changed)}
+        self.first_poll = True
 
     @staticmethod
     def _matches(ram: bytes, off: int, mon) -> bool:
@@ -282,7 +285,23 @@ class BattleHP:
             i = ram.find(key, i + 1)
         return found
 
-    def apply(self, ram: bytes, mons) -> None:
+    @staticmethod
+    def find_party_copies(ram: bytes, mon, skip=()) -> list[int]:
+        """RAM offsets of other full Pokémon entries with this PID, e.g. the battle-only copy
+        of the party the game makes at the start of a battle. When a Pokémon is switched
+        out, its HP is saved there (the real party is only updated when the battle ends)."""
+        key = struct.pack("<I", mon.pid)
+        found, i = [], ram.find(key)
+        while i != -1:
+            if i % 4 == 0 and i not in skip and i + PARTY_SIZE <= len(ram):
+                copy = parse(ram[i:i + PARTY_SIZE])
+                if copy is not None and copy.species_id == mon.species_id and copy.hp is not None:
+                    found.append(i)
+            i = ram.find(key, i + 1)
+        return found
+
+    def apply(self, ram: bytes, mons, skip=()) -> None:
+        """skip: RAM offsets of the real party/enemy entries (already read as "party")."""
         now = time.monotonic()
         for mon in mons:
             if mon is None or mon.hp is None:
@@ -292,13 +311,20 @@ class BattleHP:
             for off in self.find_all(ram, mon):
                 hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
                 status = _status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF)
-                values[off] = (hp, max_hp, status)
+                values[("battler", off)] = (hp, max_hp, status)
+            for off in self.find_party_copies(ram, mon, skip):
+                copy = parse(ram[off:off + PARTY_SIZE])
+                values[("copy", off)] = (copy.hp, copy.max_hp, copy.status)
 
             for key, val in values.items():
                 if key not in rec:
-                    # First sighting counts as "old" (party slightly newer than battle copies),
-                    # so a leftover battle copy can't win just because the tracker just started.
-                    rec[key] = (val, -1.0 if key == "party" else -2.0)
+                    # Anything already in memory when the tracker starts counts as "old"
+                    # (party slightly newer than battle copies), so a leftover copy from an
+                    # earlier battle can't win. Copies that appear later are new.
+                    if self.first_poll:
+                        rec[key] = (val, -1.0 if key == "party" else -2.0)
+                    else:
+                        rec[key] = (val, now if key != "party" else now - 1e-6)
                 elif rec[key][0] != val:
                     rec[key] = (val, now)
             for key in [k for k in rec if k not in values]:
@@ -309,6 +335,83 @@ class BattleHP:
                 mon.hp, mon.max_hp, mon.status = rec[newest][0]
                 mon.stats["HP"] = mon.max_hp
                 mon.in_battle = True
+        self.first_poll = False
+
+
+class BattleState:
+    """Works out which Pokémon are currently out in battle.
+
+    The game keeps the active battlers in an array: battleMons[0] is yours, [1] the foe's.
+    Switching overwrites that slot. The array stays in memory after the battle, so a battle
+    counts as over once your active Pokémon's party entry (HP, status, PP, which the game
+    writes back when a battle ends) has changed more recently than the array.
+    """
+
+    def __init__(self):
+        self.arrays = {}   # RAM offset -> (signature, time it last changed)
+        self.party = {}    # pid -> (sync values, time they last changed)
+        self.first_poll = True
+
+    @staticmethod
+    def _valid(ram: bytes, off: int) -> bool:
+        if off < 0 or off + BM_SIZE > len(ram):
+            return False
+        species = struct.unpack_from("<H", ram, off + BM_SPECIES)[0]
+        hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
+        return 1 <= species <= 493 and 1 <= ram[off + BM_LEVEL] <= 100 and 0 < max_hp <= 999 and 0 <= hp <= max_hp
+
+    @staticmethod
+    def _signature(ram: bytes, base: int):
+        return tuple(ram[base + i * BM_SIZE: base + (i + 1) * BM_SIZE] for i in range(2))
+
+    def update(self, ram: bytes, party, enemy, finder: BattleHP):
+        """Returns (index of your active Pokémon, index of the foe's), or (None, None)."""
+        now = time.monotonic()
+
+        for mon in party:
+            if mon is None or mon.hp is None:
+                continue
+            # values straight from the party data (not the battle-adjusted ones)
+            vals = getattr(mon, "_party_sync")
+            old = self.party.get(mon.pid)
+            if old is None:
+                self.party[mon.pid] = (vals, -1.0 if self.first_poll else now - 1e-6)
+            elif old[0] != vals:
+                self.party[mon.pid] = (vals, now)
+
+        # Candidate arrays: anywhere one of your Pokémon sits in slot 0 (or slot 2 in doubles)
+        # with another valid battler right after it.
+        found = set()
+        for mon in party:
+            if mon is None:
+                continue
+            for off in finder.find_all(ram, mon):
+                for base in (off, off - 2 * BM_SIZE):
+                    if base >= 0 and base % 4 == 0 and self._valid(ram, base) and self._valid(ram, base + BM_SIZE):
+                        found.add(base)
+        for base in list(self.arrays):
+            if base not in found:
+                del self.arrays[base]
+        for base in found:
+            sig = self._signature(ram, base)
+            old = self.arrays.get(base)
+            if old is None:   # leftovers present at startup are old; anything later is a new battle
+                self.arrays[base] = (sig, -2.0 if self.first_poll else now)
+            elif old[0] != sig:
+                self.arrays[base] = (sig, now)
+        self.first_poll = False
+        if not self.arrays:
+            return None, None
+
+        base = max(self.arrays, key=lambda b: self.arrays[b][1])
+        changed = self.arrays[base][1]
+        my_pid = struct.unpack_from("<I", ram, base + BM_PID)[0]
+        foe_pid = struct.unpack_from("<I", ram, base + BM_SIZE + BM_PID)[0]
+        if my_pid in self.party and self.party[my_pid][1] > changed:
+            return None, None   # party updated after the battle data: battle is over
+
+        index = lambda mons, pid: next((i for i, m in enumerate(mons) if m and m.pid == pid), None)
+        return index(party, my_pid), index(enemy, foe_pid)
 
 
 class MemorySource:
@@ -322,6 +425,7 @@ class MemorySource:
         self.next_attempt = 0.0
         self.last_shown = None
         self.battle = BattleHP()
+        self.state = BattleState()
 
     def _connect(self):
         pid = self.fixed_pid or find_desmume_pid(self.name_hint)
@@ -352,11 +456,19 @@ class MemorySource:
 
         party = [parse(b) for b in snap["party"]]
         enemy = [parse(b) for b in snap["enemy"]]
-        self.battle.apply(snap["ram"], party + enemy)
+        for m in party:
+            if m is not None:   # remember the party's own values before battle HP overrides them
+                m._party_sync = (m.hp, m.max_hp, m.status, tuple(pp for _, pp in m.moves))
+        p0 = snap["base"] + PARTY_OFFSET - DS_RAM_START
+        e0 = snap["base"] + ENEMY_OFFSET - DS_RAM_START
+        skip = {o + i * PARTY_SIZE for o in (p0, e0) for i in range(6)}
+        self.battle.apply(snap["ram"], party + enemy, skip)
+        party_active, enemy_active = self.state.update(snap["ram"], party, enemy, self.battle)
 
         # only redraw when something visible changed
         shown = (snap["base"], tuple(snap["party"]), tuple(snap["enemy"]),
-                 tuple((m.hp, m.max_hp, m.status) if m else None for m in party + enemy))
+                 tuple((m.hp, m.max_hp, m.status) if m else None for m in party + enemy),
+                 party_active, enemy_active)
         if shown == self.last_shown:
             return None, None
         self.last_shown = shown
@@ -365,6 +477,8 @@ class MemorySource:
                      "source": f"DeSmuME pid {self.mem.pid}"},
             "party": party,
             "enemy": enemy,
+            "party_active": party_active,   # index of the Pokémon you have out, or None
+            "enemy_active": enemy_active,   # index of the foe's Pokémon, or None
         }
         return data, None
 

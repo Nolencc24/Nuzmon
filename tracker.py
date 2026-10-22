@@ -88,11 +88,13 @@ class Card(QFrame):
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(2)
         self.cells = {"header": []}
+
         for c, h in enumerate(["", "Stat", "IV", "EV"]):
             lbl = QLabel(h, objectName="dim")
             lbl.setAlignment(Qt.AlignRight if c else Qt.AlignLeft)
             grid.addWidget(lbl, 0, c)
             self.cells["header"].append(lbl)
+
         for r, stat in enumerate(DISPLAY_ORDER, start=1):
             row = [QLabel(stat, objectName="cell")] + [QLabel(objectName="cell") for _ in range(3)]
             for c, lbl in enumerate(row):
@@ -100,9 +102,11 @@ class Card(QFrame):
                     lbl.setAlignment(Qt.AlignRight)
                 grid.addWidget(lbl, r, c)
             self.cells[stat] = row
+
         self.extra = QLabel(objectName="dim")
         self.extra.setWordWrap(True)
         self.moves = QLabel(objectName="cell")
+
         if wide:
             lay.addWidget(self.extra)
             lay.addStretch()
@@ -125,9 +129,11 @@ class Card(QFrame):
         has = m is not None
         for w in (self.hpbar, self.hptext, self.info, self.extra, self.moves):
             w.setVisible(has)
+
         for row in self.cells.values():
             for lbl in row:
                 lbl.setVisible(has)
+
         if not has:
             self.name.setText("—")
             self.level.setText("empty")
@@ -149,6 +155,7 @@ class Card(QFrame):
         self.info.setText(f"{m.nature} · {m.ability}")
 
         up, down = nature_effect(m.nature)
+
         for stat in DISPLAY_ORDER:
             name, val, iv, ev = self.cells[stat]
             name.setStyleSheet("color:#ff7a7a" if stat == up else "color:#7ab0ff" if stat == down else "")
@@ -194,10 +201,12 @@ class Row(QFrame):
         has = m is not None
         for w in (self.hpbar, self.hptext, self.status):
             w.setVisible(has)
+
         if not has:
             self.name.setText("—")
             self.level.setText("")
             return
+        
         self.name.setText("Egg" if m.is_egg else f"{m.species}{' ★' if m.shiny else ''}")
         self.level.setText(f"Lv {m.level}" if m.level is not None else "")
         hp, mx = m.hp or 0, m.max_hp or 1
@@ -211,14 +220,19 @@ class Row(QFrame):
 
 
 class TeamSection(QWidget):
-    """Slot 1 as a big expanded card on the left, slots 2-6 as thin rows on the right."""
+    """The featured Pokémon as a big expanded card on the left, the rest as thin rows.
+
+    Outside battle the featured one is party slot 1; in battle it's whoever is out.
+    """
 
     def __init__(self, title: str):
         super().__init__()
+        self.title = title.upper()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(6)
-        outer.addWidget(QLabel(title.upper(), objectName="section"))
+        self.heading = QLabel(self.title, objectName="section")
+        outer.addWidget(self.heading)
 
         body = QHBoxLayout()
         body.setSpacing(10)
@@ -233,10 +247,15 @@ class TeamSection(QWidget):
         body.addLayout(rows, 2)        # ...the rows get 2/5
         outer.addLayout(body)
 
-    def show_team(self, mons):
-        self.lead.show_mon(mons[0])
-        for row, m in zip(self.rows, mons[1:]):
+    def show_team(self, mons, active: int | None = None):
+        """active: index of the Pokémon currently in battle (None outside battle)."""
+        featured = active if active is not None and mons[active] is not None else 0
+        self.lead.show_mon(mons[featured])
+        others = [m for i, m in enumerate(mons) if i != featured]   # keep party order
+       
+        for row, m in zip(self.rows, others):
             row.show_mon(m)
+        self.heading.setText(f"{self.title}  ·  IN BATTLE" if active is not None else self.title)
 
 
 class InfoPanel(QFrame):
@@ -248,11 +267,11 @@ class InfoPanel(QFrame):
         self.setMinimumHeight(110)
         self.body = QVBoxLayout(self)
         self.body.setContentsMargins(14, 10, 14, 10)
-        self.body.addWidget(QLabel("BATTLE INFO", objectName="section"))
-        self.placeholder = QLabel("Space for extra info: matchups, damage calcs, encounter notes…",
-                                  objectName="dim")
-        self.body.addWidget(self.placeholder)
+        self.body.addWidget(QLabel("CALCULATOR", objectName="section"))
         self.body.addStretch()
+        self.moves = QLabel(objectName="cell")
+
+        
 
 
 class FileSource:
@@ -268,8 +287,10 @@ class FileSource:
             mtime = os.path.getmtime(self.path)
         except OSError:
             return None, f"Waiting for {self.path} … is tracker.lua running in DeSmuME?"
+        
         if mtime == self.last_mtime:
             return None, None
+       
         try:
             data = read_dump(self.path)
         except (OSError, IncompleteDump):
@@ -307,19 +328,21 @@ class Tracker(QMainWindow):
         data, message = self.source.poll()
         if message:
             self.status.setText(message)
+       
         if data is None:
             return
 
-        self.party.show_team(data["party"])
-        self.enemy.show_team(data["enemy"])
+        self.party.show_team(data["party"], data.get("party_active"))
+        self.enemy.show_team(data["enemy"], data.get("enemy_active"))
 
         n_party = sum(m is not None for m in data["party"])
         n_enemy = sum(m is not None for m in data["enemy"])
         meta = data["meta"]
         msg = (f"{meta.get('source', '')}  ·  game {meta.get('game', '?')}  ·  base {meta.get('base', '?')}  ·  "
                f"{n_party} party / {n_enemy} opponent slots decoded")
+      
         if n_party == 0:
-            msg += ("   ⚠ nothing passed the checksum: you may be on the title screen, "
+            msg += (" nothing passed the checksum: you may be on the title screen, "
                     "or the address is wrong for your ROM")
         self.status.setText(msg)
 
@@ -336,6 +359,7 @@ def write_demo_file() -> str:
     lines += [f"P{i}={empty}" for i in range(3, 7)]
     lines += [f"E1={p2}", f"E2={p1}"] + [f"E{i}={empty}" for i in range(3, 7)]
     path = os.path.join(tempfile.gettempdir(), "ss_dump_demo.txt")
+   
     with open(path, "w", encoding="ascii") as f:
         f.write("\n".join(lines) + "\n")
     return path
