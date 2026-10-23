@@ -54,6 +54,7 @@ class MemorySource:
                 return None, f"{e}  Retrying…"
         try:
             snap = self.mem.snapshot()
+
         except OSError:
             self.mem.close()
             self.mem, self.last_shown = None, None   # DeSmuME closed or game reset: search again
@@ -74,8 +75,10 @@ class MemorySource:
         shown = (snap["base"], tuple(snap["party"]), tuple(snap["enemy"]),
                  tuple((m.hp, m.max_hp, m.status) if m else None for m in party + enemy),
                  party_active, enemy_active)
+        
         if shown == self.last_shown:
             return None, None
+        
         self.last_shown = shown
         data = {
             "meta": {"game": self.mem.game, "base": f"0x{snap['base']:08X}",
@@ -121,6 +124,7 @@ def write_demo_file() -> str:
     lines += [f"P{i}={empty}" for i in range(3, 7)]
     lines += [f"E1={p2}", f"E2={p1}"] + [f"E{i}={empty}" for i in range(3, 7)]
     path = os.path.join(tempfile.gettempdir(), "ss_dump_demo.txt")
+    
     with open(path, "w", encoding="ascii") as f:
         f.write("\n".join(lines) + "\n")
     return path

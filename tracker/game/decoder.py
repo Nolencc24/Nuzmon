@@ -62,11 +62,14 @@ def decrypt(raw: bytes) -> bytes:
     pid, _, chk = struct.unpack_from("<IHH", raw, 0)
     shuffled = _xor_words(raw[8:STORED_SIZE], chk)
     order = BLOCK_ORDER[shift_value(pid)]
+
     blocks = b"".join(
         shuffled[order.index(letter) * BLOCK_SIZE:(order.index(letter) + 1) * BLOCK_SIZE]
         for letter in "ABCD"
     )
+
     out = raw[:8] + blocks
+
     if len(raw) >= PARTY_SIZE:
         out += _xor_words(raw[STORED_SIZE:PARTY_SIZE], pid)
     return out
@@ -79,6 +82,7 @@ def encrypt(plain: bytes) -> bytes:
     by_letter = {l: plain[8 + i * BLOCK_SIZE: 8 + (i + 1) * BLOCK_SIZE] for i, l in enumerate("ABCD")}
     shuffled = b"".join(by_letter[l] for l in order)
     out = plain[:8] + _xor_words(shuffled, chk)
+
     if len(plain) >= PARTY_SIZE:
         out += _xor_words(plain[STORED_SIZE:PARTY_SIZE], pid)
     return out
@@ -118,10 +122,13 @@ class Pokemon:
 def _status_text(b: int) -> str:
     if b & 0x07:
         return f"Asleep ({b & 0x07})"
+    
     for bit, name in ((0x80, "Toxic"), (0x08, "Poisoned"), (0x10, "Burned"),
                       (0x20, "Frozen"), (0x40, "Paralyzed")):
+        
         if b & bit:
             return name
+        
     return "OK"
 
 
@@ -133,6 +140,7 @@ def parse(raw: bytes, already_decrypted: bool = False) -> Pokemon | None:
     """Decode one Pokémon. Returns None for empty slots or bad data (checksum mismatch)."""
     if len(raw) not in (STORED_SIZE, PARTY_SIZE):
         return None
+    
     pid, _, chk = struct.unpack_from("<IHH", raw, 0)
     if pid == 0 and chk == 0:
         return None  # empty slot
@@ -144,6 +152,7 @@ def parse(raw: bytes, already_decrypted: bool = False) -> Pokemon | None:
     species_id, item, tid, sid = struct.unpack_from("<HHHH", d, 0x08)
     if not 1 <= species_id <= 493:
         return None
+    
     exp = struct.unpack_from("<I", d, 0x10)[0]
     evs = dict(zip(STAT_NAMES, d[0x18:0x1E]))
 
@@ -204,6 +213,7 @@ def read_dump(path: str) -> dict:
         key, _, val = line.strip().partition("=")
         if not key:
             continue
+
         if key in [l[:2] for l in slot_lines]:
             slot = int(key[1:]) - 1
             try:
@@ -211,6 +221,7 @@ def read_dump(path: str) -> dict:
             except ValueError:
                 mon = None
             (party if key[0] == "P" else enemy)[slot] = mon
+            
         else:
             meta[key] = val
     return {"meta": meta, "party": party, "enemy": enemy}

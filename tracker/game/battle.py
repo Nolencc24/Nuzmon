@@ -36,18 +36,22 @@ class BattleHP:
     def _matches(ram: bytes, off: int, mon) -> bool:
         if off < 0 or off % 4 or off + 0x70 > len(ram):
             return False
+        
         species = struct.unpack_from("<H", ram, off + BM_SPECIES)[0]
         hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
+
         return species == mon.species_id and 0 < max_hp <= 999 and 0 <= hp <= max_hp
 
     def find_all(self, ram: bytes, mon) -> list[int]:
         """RAM offsets of every battle copy of this Pokémon (matched by PID + species)."""
         key = struct.pack("<I", mon.pid)
         found, i = [], ram.find(key)
+
         while i != -1:
             if self._matches(ram, i - BM_PID, mon):
                 found.append(i - BM_PID)
             i = ram.find(key, i + 1)
+
         return found
 
     @staticmethod
@@ -57,12 +61,15 @@ class BattleHP:
         out, its HP is saved there (the real party is only updated when the battle ends)."""
         key = struct.pack("<I", mon.pid)
         found, i = [], ram.find(key)
+
         while i != -1:
             if i % 4 == 0 and i not in skip and i + PARTY_SIZE <= len(ram):
                 copy = parse(ram[i:i + PARTY_SIZE])
                 if copy is not None and copy.species_id == mon.species_id and copy.hp is not None:
                     found.append(i)
+
             i = ram.find(key, i + 1)
+
         return found
 
     def apply(self, ram: bytes, mons, skip=()) -> None:
@@ -71,12 +78,15 @@ class BattleHP:
         for mon in mons:
             if mon is None or mon.hp is None:
                 continue
+
             rec = self.seen.setdefault(mon.pid, {})
             values = {"party": (mon.hp, mon.max_hp, mon.status)}
+
             for off in self.find_all(ram, mon):
                 hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
                 status = _status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF)
                 values[("battler", off)] = (hp, max_hp, status)
+
             for off in self.find_party_copies(ram, mon, skip):
                 copy = parse(ram[off:off + PARTY_SIZE])
                 values[("copy", off)] = (copy.hp, copy.max_hp, copy.status)
@@ -88,10 +98,13 @@ class BattleHP:
                     # earlier battle can't win. Copies that appear later are new.
                     if self.first_poll:
                         rec[key] = (val, -1.0 if key == "party" else -2.0)
+
                     else:
                         rec[key] = (val, now if key != "party" else now - 1e-6)
+
                 elif rec[key][0] != val:
                     rec[key] = (val, now)
+
             for key in [k for k in rec if k not in values]:
                 del rec[key]   # that copy is gone or was overwritten
 
@@ -100,6 +113,7 @@ class BattleHP:
                 mon.hp, mon.max_hp, mon.status = rec[newest][0]
                 mon.stats["HP"] = mon.max_hp
                 mon.in_battle = True
+
         self.first_poll = False
 
 
@@ -150,21 +164,27 @@ class BattleState:
         for mon in party:
             if mon is None:
                 continue
+
             for off in finder.find_all(ram, mon):
                 for base in (off, off - 2 * BM_SIZE):
                     if base >= 0 and base % 4 == 0 and self._valid(ram, base) and self._valid(ram, base + BM_SIZE):
                         found.add(base)
+
         for base in list(self.arrays):
             if base not in found:
                 del self.arrays[base]
+
         for base in found:
             sig = self._signature(ram, base)
             old = self.arrays.get(base)
             if old is None:   # leftovers present at startup are old; anything later is a new battle
                 self.arrays[base] = (sig, -2.0 if self.first_poll else now)
+
             elif old[0] != sig:
                 self.arrays[base] = (sig, now)
+
         self.first_poll = False
+
         if not self.arrays:
             return None, None
 
@@ -172,6 +192,7 @@ class BattleState:
         changed = self.arrays[base][1]
         my_pid = struct.unpack_from("<I", ram, base + BM_PID)[0]
         foe_pid = struct.unpack_from("<I", ram, base + BM_SIZE + BM_PID)[0]
+        
         if my_pid in self.party and self.party[my_pid][1] > changed:
             return None, None   # party updated after the battle data: battle is over
 

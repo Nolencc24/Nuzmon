@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
     def __init__(self, source):
         super().__init__()
         self.source = source
-        self.setWindowTitle("SoulSilver Tracker")
+        self.setWindowTitle("Nuzmon")
 
         root = QWidget()
         lay = QVBoxLayout(root)
@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.pages = []
+
         for label, page_class in PAGES:
             page = page_class()
             self.tabs.addTab(page, label)
@@ -71,6 +72,7 @@ class MainWindow(QMainWindow):
         meta = data["meta"]
         msg = (f"{meta.get('source', '')}  ·  game {meta.get('game', '?')}  ·  base {meta.get('base', '?')}  ·  "
                f"{n_party} party / {n_enemy} opponent slots decoded")
+        
         if n_party == 0:
             msg += ("   ⚠ nothing passed the checksum: you may be on the title screen, "
                     "or the address is wrong for your ROM")

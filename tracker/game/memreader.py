@@ -65,10 +65,13 @@ class _WindowsProcess:
 
         fields = [("BaseAddress", ctypes.c_void_p), ("AllocationBase", ctypes.c_void_p),
                   ("AllocationProtect", wt.DWORD)]
+        
         if ctypes.sizeof(ctypes.c_void_p) == 8:
             fields.append(("PartitionId", wt.WORD))  # 64-bit layout; padding follows automatically
+
         fields += [("RegionSize", ctypes.c_size_t), ("State", wt.DWORD),
                    ("Protect", wt.DWORD), ("Type", wt.DWORD)]
+        
         self.MBI = type("MEMORY_BASIC_INFORMATION", (ctypes.Structure,), {"_fields_": fields})
         k32.VirtualQueryEx.argtypes = [wt.HANDLE, ctypes.c_void_p, ctypes.POINTER(self.MBI), ctypes.c_size_t]
         k32.VirtualQueryEx.restype = ctypes.c_size_t
@@ -85,12 +88,14 @@ class _WindowsProcess:
         mbi = self.MBI()
         addr, limit = 0, (1 << 47) if ctypes.sizeof(ctypes.c_void_p) == 8 else (1 << 31)
         MEM_COMMIT, PAGE_NOACCESS, PAGE_GUARD = 0x1000, 0x01, 0x100
+
         while addr < limit:
             if not self.k32.VirtualQueryEx(self.handle, addr, ctypes.byref(mbi), ctypes.sizeof(mbi)):
                 break
             base, size = mbi.BaseAddress or 0, mbi.RegionSize
             if mbi.State == MEM_COMMIT and not (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) and mbi.Protect:
                 yield base, size
+
             addr = base + size
 
     def read(self, addr: int, n: int) -> bytes:
@@ -99,6 +104,7 @@ class _WindowsProcess:
         got = ctypes.c_size_t(0)
         if not self.k32.ReadProcessMemory(self.handle, addr, buf, n, ctypes.byref(got)) or got.value != n:
             raise OSError("ReadProcessMemory failed")
+        
         return buf.raw
 
     def close(self):
@@ -112,8 +118,10 @@ class _LinuxProcess:
         self.pid = pid
         try:
             self.mem = open(f"/proc/{pid}/mem", "rb", buffering=0)
+
         except PermissionError as e:
             raise NotFound("No permission to read DeSmuME's memory; try running with sudo.") from e
+        
         except OSError as e:
             raise NotFound("DeSmuME isn't running.") from e
 
@@ -121,6 +129,7 @@ class _LinuxProcess:
         with open(f"/proc/{self.pid}/maps") as f:
             for line in f:
                 parts = line.split()
+
                 if "r" not in parts[1]:
                     continue
                 start, end = (int(x, 16) for x in parts[0].split("-"))
@@ -129,8 +138,10 @@ class _LinuxProcess:
     def read(self, addr: int, n: int) -> bytes:
         self.mem.seek(addr)
         data = self.mem.read(n)
+
         if len(data) != n:
             raise OSError("short read")
+        
         return data
 
     def close(self):
@@ -143,9 +154,11 @@ def _open_process(pid: int):
 
 def find_desmume_pid(name_hint: str = "desmume") -> int:
     import psutil
+
     for p in psutil.process_iter(["pid", "name"]):
         if name_hint in (p.info["name"] or "").lower():
             return p.info["pid"]
+        
     raise NotFound("DeSmuME isn't running.")
 
 
@@ -177,22 +190,30 @@ class DesmumeMemory:
         overlap = 16
         for start, size in self.proc.regions():
             pos = 0
+
             while pos < size:
                 n = min(CHUNK, size - pos)
                 try:
                     chunk = self.proc.read(start + pos, n)
+
                 except OSError:
                     break
+
                 self.scanned += n
                 for sig in SIGNATURES:
                     i = chunk.find(sig)
+
                     while i != -1:
                         code = chunk[i + 12:i + 16]
+
                         if len(code) == 4 and code[:3].decode("latin-1") in GAME_CODES:
                             yield start + pos + i, code.decode("latin-1")
+
                         i = chunk.find(sig, i + 1)
+
                 if n < CHUNK:
                     break
+
                 pos += n - overlap
 
     def locate(self, report=None) -> None:
@@ -205,12 +226,15 @@ class DesmumeMemory:
         for addr, code in self.find_headers():
             if report:
                 report(f"  header '{code}' at 0x{addr:X}")
+
             for block in RAM_BLOCK_SIZES:
                 ok, why = self._try_candidate(addr - (block - 0x200), block - 1, code)
+
                 if report:
                     report(f"    as end of a {block >> 20} MB RAM block: {why}")
                 if ok:
                     return
+                
         raise NotFound("DeSmuME is running but no SoulSilver/HeartGold RAM was found yet. "
                        "Load your save and get past the title screen.")
 
@@ -219,17 +243,23 @@ class DesmumeMemory:
         try:
             ptr_addr = BASE_POINTERS.get(code[3], BASE_POINTER_EU)
             ptr = self.u32(ptr_addr)
+
         except OSError:
             return False, "unreadable (not RAM)"
         # The ROM's own header also matches; real RAM has an aligned pointer into DS RAM.
         # It's 0 on the title screen, so we only lock on once you're in-game.
+
         if ptr == 0:
             return False, f"party pointer at 0x{ptr_addr:08X} is 0 (title screen?)"
+        
         # The pointer itself needn't be aligned (HGSS adds 0x12), but the party it leads to is.
         if (ptr + PARTY_OFFSET) % 4 or not DS_RAM_START < ptr < DS_RAM_START + DS_RAM_SIZE - ENEMY_OFFSET:
             return False, f"party pointer at 0x{ptr_addr:08X} = 0x{ptr:08X}, not a valid RAM address"
+        
         self.game, self.base_pointer = code, ptr_addr
+
         return True, f"OK, party pointer = 0x{ptr:08X}"
+    
 
     def snapshot(self) -> dict:
         """Raw encrypted bytes for 6 party + 6 enemy slots, plus all of DS RAM.
@@ -242,9 +272,11 @@ class DesmumeMemory:
         if not DS_RAM_START < base < DS_RAM_START + DS_RAM_SIZE - ENEMY_OFFSET - PARTY_SIZE * 6:
             empty = [bytes(PARTY_SIZE)] * 6
             return {"base": base, "party": empty, "enemy": empty, "ram": ram}
+        
         p = base + PARTY_OFFSET - DS_RAM_START
         e = base + ENEMY_OFFSET - DS_RAM_START
         split = lambda o: [ram[o + i * PARTY_SIZE:o + (i + 1) * PARTY_SIZE] for i in range(6)]
+
         return {"base": base, "party": split(p), "enemy": split(e), "ram": ram}
 
 
@@ -261,9 +293,11 @@ def diagnose(pid: int | None = None) -> None:
     print(f"Python {platform.python_version()} {platform.architecture()[0]} on {platform.platform()}")
     try:
         pid = pid or find_desmume_pid()
+
     except NotFound as e:
         print(e)
         return
+    
     proc = psutil.Process(pid)
     print(f"DeSmuME process: {proc.name()} (pid {pid}), exe: {proc.exe()}")
     try:
@@ -271,9 +305,11 @@ def diagnose(pid: int | None = None) -> None:
     except NotFound as e:
         print(e)
         return
+    
     regions = list(mem.proc.regions())
     print(f"Readable memory regions: {len(regions)}, total {sum(s for _, s in regions) / 2**20:.0f} MB")
     print("Searching for the game header…")
+
     try:
         mem.locate(report=print)
         print(f"\nFOUND: game {mem.game}, DS RAM at 0x{mem.ram_base:X} "
@@ -281,6 +317,7 @@ def diagnose(pid: int | None = None) -> None:
         snap = mem.snapshot()
         names = [(m.species, f"Lv{m.level}", f"{m.hp}/{m.max_hp}") if m else None
                  for m in map(parse, snap["party"])]
+        
         print("Party:", names)
         bh = BattleHP()
         for label, raws in (("party", snap["party"]), ("enemy", snap["enemy"])):

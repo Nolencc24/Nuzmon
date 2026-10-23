@@ -18,4 +18,5 @@ SHINY_CUBONE = bytes.fromhex(
 def as_party(stored: bytes, level: int, hp: int, max_hp: int) -> bytes:
     """Bolt a fake battle-stats section onto 136-byte box data -> 236 bytes."""
     battle = bytes([0x10, 0, 0, 0, level, 0]) + struct.pack("<7H", hp, max_hp, 11, 12, 13, 14, 15)
+    
     return stored + battle + bytes(236 - 136 - len(battle))
