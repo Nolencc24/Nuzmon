@@ -1,21 +1,27 @@
 """The damage calculator in the middle of the Battle tab.
 
     InfoPanel           the whole calculator: a "You" side and a "Foe" side
-      CalcSide          one side: which Pokémon + 4 move rows
+      CalcSide          one side: species + level, then 4 move rows
         MoveRow         move | base power | type | physical/special | crit
 
 The foe's side is mirrored, so each side's move boxes sit along the panel's outer edge.
+
+Each side follows the Pokémon that's out (live). Changing anything on a side (species,
+level, a move or its settings) pins that side: it stops following the game until you
+press its Reset button. The side's current Pokémon (CalcSide.subject()) is also what the
+Battle tab shows in the big card.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.ui.widgets import MovePicker
+from tracker.game.stats import form_name, from_battler, preview, with_level
+from tracker.ui.widgets import MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
 
@@ -64,6 +70,8 @@ class MoveRow:
         self.crit.setChecked(False)
         if not has:
             self.power.setText("")
+            self.type.setCurrentIndex(-1)        # blank, not a leftover value
+            self.category.setCurrentIndex(-1)
             self.picker.setToolTip("")
             return
         power, mtype = move["power"], move["type"]
@@ -85,23 +93,48 @@ class MoveRow:
 
 
 class CalcSide(QFrame):
-    """One side of the damage calculator: which Pokémon, and 4 move rows.
+    """One side of the damage calculator: species + level + Reset, then 4 move rows.
 
-    The moves fill in from the Pokémon's real moves, but only when the Pokémon changes
-    (or learns a move), so anything you change by hand isn't overwritten on every update.
-    mirrored=True puts the move box on the right (for the foe's side).
+    Follows the live Pokémon until you change something; then the side is pinned:
+      * a real Pokémon (the live one, or a team member you picked) stays selected even if
+        it switches out, with its live HP still updating
+      * any other species is a preview (IVs 31, EVs 0, neutral nature)
+      * your moves, level and move settings are kept
+    Reset goes back to following the live Pokémon.
+
+    mirrored=True lays the side out right-to-left (for the foe).
+    Emits subject_changed whenever subject() may have changed.
     """
+
+    subject_changed = Signal()
 
     def __init__(self, label: str, mirrored: bool = False):
         super().__init__()
         self.setObjectName("calcside")
-        self.label = label
         lay = QVBoxLayout(self)
         lay.setContentsMargins(12, 10, 12, 10)
         lay.setSpacing(6)
-        self.title = QLabel(objectName="rowname")
-        self.title.setAlignment(Qt.AlignRight if mirrored else Qt.AlignLeft)
-        lay.addWidget(self.title)
+
+        header = QHBoxLayout()
+        header.setSpacing(6)
+        self.title = QLabel(label.upper(), objectName="rowname")
+        self.species = SpeciesPicker()
+        self.species.setToolTip("Pick any Pokémon to calculate with (and show in the big card)")
+        level_label = QLabel("Lv", objectName="dim")
+        self.level = QLineEdit(objectName="power")
+        self.level.setValidator(QIntValidator(1, 100, self.level))
+        self.level.setAlignment(Qt.AlignCenter)
+        self.level.setFixedWidth(40)
+        self.level.setToolTip("Level (stats scale with it)")
+        self.reset_button = QPushButton("Reset", objectName="reset")
+        self.reset_button.setToolTip("Go back to the Pokémon that's out in the game")
+        self.reset_button.clicked.connect(self.reset)
+        items = [self.title, self.species, level_label, self.level, self.reset_button]
+        if mirrored:
+            items.reverse()
+        for w in items:
+            header.addWidget(w, 1 if w is self.species else 0)
+        lay.addLayout(header)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(6)
@@ -113,32 +146,152 @@ class CalcSide(QFrame):
                 widgets.reverse()
             for c, w in enumerate(widgets):
                 grid.addWidget(w, r, c)
+            # any change you make to a move row pins this side
+            row.picker.move_changed.connect(self._on_move_edit)
+            row.power.textEdited.connect(self._on_move_edit)
+            row.type.activated.connect(self._on_move_edit)
+            row.category.activated.connect(self._on_move_edit)
+            row.crit.clicked.connect(self._on_move_edit)
         move_col = 4 if mirrored else 0
         grid.setColumnStretch(move_col, 1)           # the move box takes the spare width
         lay.addLayout(grid)
         lay.addStretch()
 
-        self._shown = None   # (pid, real moves) last filled in
-        self.show_pokemon(None)
+        self.live = None              # the Pokémon that's actually out (or leading)
+        self.team = []                # this side's party, for matching picked species
+        self.pinned = False           # True once you change something; Reset clears it
+        self.pin_pid = None           # pinned real Pokémon (its PID), or None for a preview
+        self.pin_snapshot = None      # last seen copy of it (used if it's not in the team list)
+        self.pin_species = None       # pinned preview species, when pin_pid is None
+        self.level_override = None    # level typed by hand, or None
+        self._filled = None           # identity of the Pokémon whose moves are in the rows
+        self._filling = False         # True while the side fills its own rows (not your edits)
 
-    def show_pokemon(self, mon) -> None:
-        """mon: a decoded Pokemon or a Battler (both have pid, species, level, moves)."""
-        if mon is None:
-            self.title.setText(f"{self.label.upper()}  ·  —")
-            return
-        self.title.setText(f"{self.label.upper()}  ·  {mon.species}  Lv {mon.level}")
-        for row in self.rows:
-            row.hidden_power = getattr(mon, "hidden_power", None)
-        real = tuple(name for name, _pp in mon.moves)
-        if (mon.pid, real) != self._shown:          # new Pokémon, or it learned a move
-            self._shown = (mon.pid, real)
-            for row, name in zip(self.rows, list(real) + [""] * 4):
-                row.picker.set_move(name)
-                row.reset(row.picker.move())         # also resets when the move name didn't change
+        self.species.value_changed.connect(self._on_species)
+        self.level.editingFinished.connect(self._on_level)
+        self._sync()
+
+    # ---- what this side is about
+
+    def set_live(self, live, team) -> None:
+        """Called on every update with the live Pokémon (or None) and this side's team."""
+        self.team = [m for m in team if m is not None]
+        self.live = live
+        self._sync()
+
+    def subject(self):
+        """The Pokémon this side calculates with (live, pinned, or a preview), at the chosen
+        level. None if there's nothing to show."""
+        base = self._base()
+        if base is not None and self.level_override and base.level and self.level_override != base.level:
+            base = with_level(base, self.level_override)
+        return base
 
     def moves(self) -> list:
         """Settings for the 4 move slots (see MoveRow.settings), None for empty slots."""
         return [row.settings() for row in self.rows]
+
+    def reset(self) -> None:
+        """Forget everything picked by hand and follow the live Pokémon again."""
+        self.pinned = False
+        self.pin_pid = self.pin_snapshot = self.pin_species = None
+        self.level_override = None
+        self._filled = None            # refill the moves from the live Pokémon
+        self._sync()
+        self.subject_changed.emit()
+
+    # ---- internals
+
+    def _base(self):
+        if not self.pinned:
+            return self.live
+        if self.pin_pid is not None:
+            current = next((m for m in self.team + [self.live] if m is not None and m.pid == self.pin_pid), None)
+            if current is not None:
+                self.pin_snapshot = current          # fresh data (live HP) when available
+            return self.pin_snapshot
+        level = self.level_override or 50
+        return preview(self.pin_species, level, self._picked_moves())
+
+    def _identity(self):
+        if self.pinned:
+            return ("pinned", self.pin_pid, self.pin_species)
+        if self.live is None:
+            return None
+        return (self.live.pid, tuple(name for name, _pp in self.live.moves))
+
+    def _pin(self):
+        """Stop following the game, keeping whatever is shown now."""
+        if self.pinned:
+            return
+        current = self.subject()
+        self.pinned = True
+        if current is not None and not current.preview:
+            self.pin_pid, self.pin_snapshot = current.pid, self._base()
+        self._filled = self._identity()   # keep the moves that are in the rows now
+
+    def _picked_moves(self) -> list:
+        return [(m["name"], m["pp"]) for m in (row.picker.move() for row in self.rows) if m]
+
+    def _on_move_edit(self, *_args):
+        if self._filling:
+            return
+        self._pin()
+        self._sync()
+        self.subject_changed.emit()
+
+    def _on_species(self, name: str):
+        previous = self.subject()
+        self._pin()
+        real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
+        if real is not None:                       # your own Pokémon: use the real one
+            self.pin_pid, self.pin_snapshot, self.pin_species = real.pid, real, None
+            self.level_override = None
+        else:                                      # anything else: a preview
+            self.pin_pid, self.pin_snapshot, self.pin_species = None, None, name
+            self.level_override = self.level_override or (previous.level if previous and previous.level else 50)
+        self._sync()
+        self.subject_changed.emit()
+
+    def _on_level(self):
+        # Qt reports "editing finished" on every focus loss (even while closing), so only
+        # act when the level really changed.
+        text = self.level.text()
+        current = self.subject()
+        if not text or current is None or int(text) == current.level:
+            self.level.setText(str(current.level) if current is not None and current.level else "")
+            return
+        level = max(1, min(100, int(text)))
+        self._pin()
+        base = self._base()
+        self.level_override = None if base is not None and level == base.level and not base.preview else level
+        self._sync()
+        self.subject_changed.emit()
+
+    def _sync(self):
+        """Update the header and (if the Pokémon changed) the move rows to match subject()."""
+        subj = self.subject()
+        self.species.set_value(form_name(subj) if subj else "", emit=False)
+        self.level.setText(str(subj.level) if subj is not None and subj.level else "")
+        self.level.setEnabled(subj is not None)
+        self.reset_button.setEnabled(self.pinned)
+        self.title.setToolTip("Pinned: not following the game. Press Reset to follow it again."
+                              if self.pinned else "Following the Pokémon that's out")
+
+        hp = subj.hidden_power if subj is not None else None
+        for row in self.rows:
+            row.hidden_power = hp
+        ident = self._identity()
+        if ident != self._filled:     # a different Pokémon: refill the moves
+            self._filled = ident
+            names = [] if subj is None or subj.preview else [name for name, _pp in subj.moves]
+            self._filling = True
+            try:
+                for row, name in zip(self.rows, names + [""] * 4):
+                    row.picker.set_move(name)
+                    row.reset(row.picker.move())
+            finally:
+                self._filling = False
 
 
 class InfoPanel(QFrame):
@@ -161,14 +314,24 @@ class InfoPanel(QFrame):
 
     def show_battle(self, data: dict) -> None:
         """In battle, use the Pokémon that are out; otherwise your lead and the opponent's."""
+        party, enemy = data["party"], data["enemy"]
         battle = data.get("battle")
         if battle:
-            you, foe = battle["you"], battle["foe"]   # live battle data (works for wild Pokémon too)
+            you = _by_pid(party, battle["you"].pid) or from_battler(battle["you"])
+            foe = _by_pid(enemy, battle["foe"].pid)
+            foe_team = enemy
+            if foe is None:              # not in the opponent's party: a wild Pokémon
+                foe, foe_team = from_battler(battle["foe"]), []
         else:
-            you = _pick(data["party"], data.get("party_active"))
-            foe = _pick(data["enemy"], data.get("enemy_active"))
-        self.you.show_pokemon(you)
-        self.foe.show_pokemon(foe)
+            you = _pick(party, data.get("party_active"))
+            foe = _pick(enemy, data.get("enemy_active"))
+            foe_team = enemy
+        self.you.set_live(you, party)
+        self.foe.set_live(foe, foe_team)
+
+
+def _by_pid(mons, pid):
+    return next((m for m in mons if m is not None and m.pid == pid), None)
 
 
 def _pick(mons, active):

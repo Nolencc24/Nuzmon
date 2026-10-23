@@ -82,6 +82,18 @@ def species(num: int, form: int = 0) -> dict | None:
     return {"name": name, **data["by_name"][name]}
 
 
+def species_forms(num: int) -> list:
+    """Form names in the game's form order (index = form number stored in the Pokémon)."""
+    entry = _load("species.json")["by_num"].get(str(num))
+    return entry["forms"] if entry else []
+
+
+@cache
+def all_species_names() -> list[str]:
+    """Every Gen 4 species and stat-changing form, alphabetical (for pickers)."""
+    return sorted(_load("species.json")["by_name"])
+
+
 def species_by_name(name: str) -> dict | None:
     s = _load("species.json")["by_name"].get(name)
     return {"name": name, **s} if s else None

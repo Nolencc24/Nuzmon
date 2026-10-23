@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 
 from .decoder import PARTY_SIZE, _status_text, hidden_power_of, ivs_from_word, parse
-from .gamedata import ability_name, item_name, move_name, species
+from .gamedata import NATURES, ability_name, item_name, move_name, species
 
 # BattleMon field offsets (struct BattleMon in include/battle/battle.h)
 BM_SPECIES, BM_LEVEL, BM_HP, BM_MAX_HP, BM_PID, BM_STATUS = 0x00, 0x34, 0x4C, 0x50, 0x68, 0x6C
@@ -24,7 +24,7 @@ BM_MOVES = 0x0C     # 4 x u16 move IDs
 BM_IVS = 0x14       # u32, packed like the party data (5 bits per stat)
 BM_STAGES = 0x18    # 8 x s8 stat stages, stored 0..12 with 6 = neutral
 BM_TYPES = 0x24     # type1, type2 (can change in battle: Roost, Conversion...)
-BM_FORM = 0x26      # low 5 bits
+BM_FORM = 0x26      # bits 0-4 form, bit 5 shiny
 BM_ABILITY = 0x27
 BM_PP = 0x2C        # 4 x u8 current PP
 BM_ITEM = 0x78
@@ -57,6 +57,9 @@ class Battler:
     item: str | None
     status: str
     hidden_power: tuple  # (type, power), from the battler's IVs
+    ivs: dict
+    nature: str
+    shiny: bool
 
     @classmethod
     def read(cls, ram: bytes, off: int) -> "Battler":
@@ -67,11 +70,13 @@ class Battler:
         stages = struct.unpack_from("<8b", ram, off + BM_STAGES)
         hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
         form = ram[off + BM_FORM] & 0x1F
+        ivs = ivs_from_word(struct.unpack_from("<I", ram, off + BM_IVS)[0])
+        pid = struct.unpack_from("<I", ram, off + BM_PID)[0]
         t1, t2 = ram[off + BM_TYPES], ram[off + BM_TYPES + 1]
         types = [TYPE_NAMES[t] for t in dict.fromkeys((t1, t2)) if t < len(TYPE_NAMES)]
         sp = species(species_id, form)
         return cls(
-            pid=struct.unpack_from("<I", ram, off + BM_PID)[0],
+            pid=pid,
             species_id=species_id, species=sp["name"] if sp else f"#{species_id}", form=form,
             level=ram[off + BM_LEVEL], hp=hp, max_hp=max_hp,
             stats={"Atk": atk, "Def": df, "Spe": spe, "SpA": spa, "SpD": spd},
@@ -81,7 +86,8 @@ class Battler:
             types=types, ability=ability_name(ram[off + BM_ABILITY]),
             item=item_name(struct.unpack_from("<H", ram, off + BM_ITEM)[0]),
             status=_status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF),
-            hidden_power=hidden_power_of(ivs_from_word(struct.unpack_from("<I", ram, off + BM_IVS)[0])),
+            hidden_power=hidden_power_of(ivs), ivs=ivs, nature=NATURES[pid % 25],
+            shiny=bool(ram[off + BM_FORM] & 0x20),
         )
 
 

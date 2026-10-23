@@ -10,8 +10,7 @@ Nothing runs inside the emulator, so fast forward stays smooth.
 ## Setup (Windows)
 
 1. Install 64-bit Python 3.10+ and run `pip install -r requirements.txt`
-2. Check everything works: `python tests/test_decoder.py`, `python tests/test_gamedata.py`,
-   `python tests/test_storage.py`
+2. Check everything works: run each file in `tests/`, e.g. `python tests/test_decoder.py`
 3. See the window with sample data: `python main.py --demo`
 
 ## Running it
@@ -32,6 +31,7 @@ tracker/
     gamedata.py             look up moves, species, types, abilities, items (from tracker/data)
     memreader.py            find DeSmuME and the DS's RAM inside it
     battle.py               live battle HP, who is out, live battler stats/stages
+    stats.py                stat formula, level scaling, preview Pokémon for the calculator
     sources.py              data sources the window polls (memory, Lua file, demo)
     samples.py              two real Pokémon for tests and --demo
   data/                     Gen 4 reference data (JSON, generated; don't edit by hand)
@@ -39,7 +39,7 @@ tracker/
   ui/
     main_window.py          tabs + status bar; polls the source and feeds every page
     style.py                stylesheet / colors
-    widgets.py              reusable widgets: Card, Row, MovePicker
+    widgets.py              reusable widgets: Card, Row, searchable pickers (moves, species)
     pages/
       battle_page.py        the Battle tab (teams)
       damage_calc.py        the damage calculator in the middle of the Battle tab

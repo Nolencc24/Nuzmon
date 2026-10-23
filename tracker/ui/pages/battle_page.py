@@ -1,7 +1,9 @@
 """Battle page: your party on top, the opponent at the bottom, the damage calculator between
 (the calculator lives in damage_calc.py).
 
-The Pokémon currently out in battle gets the big expanded card on each side.
+The big expanded card on each side shows whatever that side of the calculator is set to:
+by default the Pokémon that's out (or the party lead); once you change something in the
+calculator, whatever you picked there, until you press that side's Reset.
 """
 
 from __future__ import annotations
@@ -40,14 +42,31 @@ class TeamSection(QWidget):
         body.addLayout(rows, 2)        # ...the rows get 2/5
         outer.addLayout(body)
 
-    def show_team(self, mons, active: int | None = None):
-        """active: index of the Pokémon currently in battle (None outside battle)."""
-        featured = active if active is not None and mons[active] is not None else 0
-        self.lead.show_mon(mons[featured])
-        others = [m for i, m in enumerate(mons) if i != featured]   # keep party order
+    def show_team(self, mons, active: int | None = None, featured=None, in_battle: bool = False,
+                  pinned: bool = False):
+        """mons: the 6 party slots. active: index of the Pokémon out in battle, or None.
+        featured: Pokémon for the big card (may be a level-adjusted copy, a preview, or a
+        wild Pokémon not in mons); None = the active one, or slot 1."""
+        if featured is None:
+            index = active if active is not None and mons[active] is not None else 0
+            featured = mons[index]
+        else:
+            # if the featured Pokémon is a team member, it moves out of the rows; otherwise it
+            # takes the place of whoever is out (or the lead)
+            index = None if featured.preview else next(
+                (i for i, m in enumerate(mons) if m is not None and m.pid == featured.pid), None)
+            if index is None:
+                index = active if active is not None else 0
+        self.lead.show_mon(featured)
+        others = [m for i, m in enumerate(mons) if i != index]   # keep party order
         for row, m in zip(self.rows, others):
             row.show_mon(m)
-        self.heading.setText(f"{self.title}  ·  IN BATTLE" if active is not None else self.title)
+        heading = self.title + ("  ·  IN BATTLE" if in_battle or active is not None else "")
+        if featured is not None and featured.preview:
+            heading += "  ·  PREVIEW (not in team)"
+        elif pinned:
+            heading += "  ·  PREVIEW (you edited stats)"
+        self.heading.setText(heading)
 
 
 class BattlePage(QWidget):
@@ -63,8 +82,25 @@ class BattlePage(QWidget):
         lay.addWidget(self.info, 1)    # the middle panel takes up any spare height
         lay.addWidget(self.enemy)
 
+        self.data = None
+        # editing species/level/moves in the calculator redraws the big cards right away
+        self.info.you.subject_changed.connect(self._render)
+        self.info.foe.subject_changed.connect(self._render)
+
     def update_data(self, data: dict) -> None:
         """Called by the main window whenever new game data arrives."""
-        self.party.show_team(data["party"], data.get("party_active"))
-        self.enemy.show_team(data["enemy"], data.get("enemy_active"))
+        self.data = data
         self.info.show_battle(data)
+        self._render()
+
+    def _render(self) -> None:
+        data = self.data
+        if data is None:
+            return
+        battle = data.get("battle") is not None
+        enemy = data["enemy"]
+        if battle and data.get("enemy_active") is None:
+            enemy = [None] * 6           # wild battle: the opponent list is left over from an old battle
+        you, foe = self.info.you, self.info.foe
+        self.party.show_team(data["party"], data.get("party_active"), you.subject(), battle, you.pinned)
+        self.enemy.show_team(enemy, data.get("enemy_active"), foe.subject(), battle, foe.pinned)

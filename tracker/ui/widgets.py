@@ -7,17 +7,10 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBox
                                QProgressBar, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.game.decoder import NATURES, Pokemon
+from tracker.game.decoder import Pokemon
+from tracker.game.stats import nature_effect
 
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
-NATURE_STATS = ["Atk", "Def", "Spe", "SpA", "SpD"]          # order used by nature math
-
-
-def nature_effect(nature: str) -> tuple[str | None, str | None]:
-    """Returns (boosted stat, lowered stat), or (None, None) for neutral natures."""
-    n = NATURES.index(nature)
-    up, down = n // 5, n % 5
-    return (None, None) if up == down else (NATURE_STATS[up], NATURE_STATS[down])
 
 
 class Card(QFrame):
@@ -181,22 +174,27 @@ class Row(QFrame):
         self.status.setText("" if m.status == "OK" else m.status)
 
 
-class MovePicker(QComboBox):
-    """A searchable move selector: type any part of a name ("punch") to filter all Gen 4 moves.
+class SearchPicker(QComboBox):
+    """A searchable dropdown: type any part of a name to filter the list.
 
-    Only real move names are accepted; anything else snaps back to the last valid choice.
-    Emits move_changed(move dict or None) when the selection changes.
+    Only names from the list are accepted; anything else snaps back to the last valid
+    choice (or, if exactly one name contains the text, that one is picked).
+    Emits value_changed(name) when the selection changes ("" = nothing selected).
     """
 
-    move_changed = Signal(object)
+    value_changed = Signal(str)
 
-    def __init__(self):
+    def __init__(self, names: list[str], placeholder: str = "Search…", allow_empty: bool = True):
         super().__init__()
+        self.names = list(names)
+        self._lookup = {n.lower(): n for n in self.names}
+        self.allow_empty = allow_empty
         self.setEditable(True)
         self.setInsertPolicy(QComboBox.NoInsert)       # typing never adds new entries
         self.setMaxVisibleItems(14)
-        self.addItem("")                               # blank = no move
-        self.addItems(gamedata.all_move_names())
+        if allow_empty:
+            self.addItem("")
+        self.addItems(self.names)
 
         completer = QCompleter(self.model(), self)
         completer.setFilterMode(Qt.MatchContains)      # match anywhere in the name
@@ -204,7 +202,7 @@ class MovePicker(QComboBox):
         completer.setCompletionMode(QCompleter.PopupCompletion)
         completer.setMaxVisibleItems(14)
         self.setCompleter(completer)
-        self.lineEdit().setPlaceholderText("Search moves…")
+        self.lineEdit().setPlaceholderText(placeholder)
 
         self._current = ""
         self.lineEdit().editingFinished.connect(self._commit)
@@ -213,30 +211,52 @@ class MovePicker(QComboBox):
 
     def _commit(self, text: str | None = None):
         text = (self.currentText() if text is None else text).strip()
-        found = gamedata.move_by_name(text) if text else None
-        if text and found is None:
-            # not a move name: if exactly one move contains the text, take it; else revert
-            matches = [n for n in gamedata.all_move_names() if text.lower() in n.lower()]
-            found = gamedata.move_by_name(matches[0]) if len(matches) == 1 else None
-            if found is None:
-                self.setEditText(self._current)
-                return
-        self._select(found["name"] if found else "")
+        name = self._lookup.get(text.lower(), "")
+        if text and not name:
+            matches = [n for n in self.names if text.lower() in n.lower()]
+            name = matches[0] if len(matches) == 1 else ""
+        if (text and not name) or (not name and not self.allow_empty):
+            self.setEditText(self._current)            # not a valid choice: revert
+            return
+        self._select(name, emit=True)
 
-    def _select(self, name: str):
+    def _select(self, name: str, emit: bool):
         self.blockSignals(True)
         self.setCurrentIndex(max(self.findText(name, Qt.MatchFixedString), 0))
         self.setEditText(name)
         self.blockSignals(False)
         if name != self._current:
             self._current = name
-            self.move_changed.emit(self.move())
+            if emit:
+                self.value_changed.emit(name)
+
+    def set_value(self, name: str, emit: bool = True):
+        """Select a name from the list ("" for none). emit=False updates silently."""
+        self._select(self._lookup.get((name or "").lower(), ""), emit)
+
+    def value(self) -> str:
+        return self._current
+
+
+class MovePicker(SearchPicker):
+    """Searchable selector over every Gen 4 move. Emits move_changed(move dict or None)."""
+
+    move_changed = Signal(object)
+
+    def __init__(self):
+        super().__init__(gamedata.all_move_names(), "Search moves…")
+        self.value_changed.connect(lambda _name: self.move_changed.emit(self.move()))
 
     def set_move(self, name: str):
-        """Select a move by name ("" for none)."""
-        found = gamedata.move_by_name(name) if name else None
-        self._select(found["name"] if found else "")
+        self.set_value(name)
 
     def move(self) -> dict | None:
         """The selected move's data (type, power, category...), or None."""
         return gamedata.move_by_name(self._current) if self._current else None
+
+
+class SpeciesPicker(SearchPicker):
+    """Searchable selector over every Gen 4 species and stat-changing form."""
+
+    def __init__(self):
+        super().__init__(gamedata.all_species_names(), "Search Pokémon…", allow_empty=False)
