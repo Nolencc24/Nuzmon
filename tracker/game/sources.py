@@ -39,7 +39,6 @@ class MemorySource:
     def _connect(self):
         pid = self.fixed_pid or find_desmume_pid(self.name_hint)
         mem = DesmumeMemory(pid)
-        
         try:
             mem.locate()
         except NotFound:
@@ -66,11 +65,9 @@ class MemorySource:
 
         party = [parse(b) for b in snap["party"]]
         enemy = [parse(b) for b in snap["enemy"]]
-
         for m in party:
             if m is not None:   # remember the party's own values before battle HP overrides them
                 m._party_sync = (m.hp, m.max_hp, m.status, tuple(pp for _, pp in m.moves))
-
         p0 = snap["base"] + PARTY_OFFSET - DS_RAM_START
         e0 = snap["base"] + ENEMY_OFFSET - DS_RAM_START
         skip = {o + i * PARTY_SIZE for o in (p0, e0) for i in range(6)}
@@ -85,7 +82,6 @@ class MemorySource:
                  battle and (battle["id"], battle["you"], battle["foe"]))
         if shown == self.last_shown:
             return None, None
-        
         self.last_shown = shown
         data = {
             "meta": {"game": self.mem.game, "base": f"0x{snap['base']:08X}",

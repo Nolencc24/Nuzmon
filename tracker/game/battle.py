@@ -14,13 +14,14 @@ import struct
 import time
 from dataclasses import dataclass
 
-from .decoder import PARTY_SIZE, _status_text, parse
+from .decoder import PARTY_SIZE, _status_text, hidden_power_of, ivs_from_word, parse
 from .gamedata import ability_name, item_name, move_name, species
 
 # BattleMon field offsets (struct BattleMon in include/battle/battle.h)
 BM_SPECIES, BM_LEVEL, BM_HP, BM_MAX_HP, BM_PID, BM_STATUS = 0x00, 0x34, 0x4C, 0x50, 0x68, 0x6C
 BM_STATS = 0x02     # atk, def, speed, spAtk, spDef (u16 each)
 BM_MOVES = 0x0C     # 4 x u16 move IDs
+BM_IVS = 0x14       # u32, packed like the party data (5 bits per stat)
 BM_STAGES = 0x18    # 8 x s8 stat stages, stored 0..12 with 6 = neutral
 BM_TYPES = 0x24     # type1, type2 (can change in battle: Roost, Conversion...)
 BM_FORM = 0x26      # low 5 bits
@@ -55,6 +56,7 @@ class Battler:
     ability: str
     item: str | None
     status: str
+    hidden_power: tuple  # (type, power), from the battler's IVs
 
     @classmethod
     def read(cls, ram: bytes, off: int) -> "Battler":
@@ -79,6 +81,7 @@ class Battler:
             types=types, ability=ability_name(ram[off + BM_ABILITY]),
             item=item_name(struct.unpack_from("<H", ram, off + BM_ITEM)[0]),
             status=_status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF),
+            hidden_power=hidden_power_of(ivs_from_word(struct.unpack_from("<I", ram, off + BM_IVS)[0])),
         )
 
 
@@ -98,7 +101,6 @@ class BattleHP:
     def _matches(ram: bytes, off: int, mon) -> bool:
         if off < 0 or off % 4 or off + 0x70 > len(ram):
             return False
-        
         species = struct.unpack_from("<H", ram, off + BM_SPECIES)[0]
         hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
         return species == mon.species_id and 0 < max_hp <= 999 and 0 <= hp <= max_hp
@@ -126,13 +128,11 @@ class BattleHP:
                 if copy is not None and copy.species_id == mon.species_id and copy.hp is not None:
                     found.append(i)
             i = ram.find(key, i + 1)
-
         return found
 
     def apply(self, ram: bytes, mons, skip=()) -> None:
         """skip: RAM offsets of the real party/enemy entries (already read as "party")."""
         now = time.monotonic()
-
         for mon in mons:
             if mon is None or mon.hp is None:
                 continue
@@ -188,10 +188,8 @@ class BattleState:
     def _valid(ram: bytes, off: int) -> bool:
         if off < 0 or off + BM_SIZE > len(ram):
             return False
-        
         species = struct.unpack_from("<H", ram, off + BM_SPECIES)[0]
         hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
-
         return 1 <= species <= 493 and 1 <= ram[off + BM_LEVEL] <= 100 and 0 < max_hp <= 999 and 0 <= hp <= max_hp
 
     @staticmethod
@@ -209,7 +207,6 @@ class BattleState:
             # values straight from the party data (not the battle-adjusted ones)
             vals = getattr(mon, "_party_sync")
             old = self.party.get(mon.pid)
-
             if old is None:
                 self.party[mon.pid] = (vals, -1.0 if self.first_poll else now - 1e-6)
             elif old[0] != vals:
@@ -221,28 +218,22 @@ class BattleState:
         for mon in party:
             if mon is None:
                 continue
-
             for off in finder.find_all(ram, mon):
                 for base in (off, off - 2 * BM_SIZE):
                     if base >= 0 and base % 4 == 0 and self._valid(ram, base) and self._valid(ram, base + BM_SIZE):
                         found.add(base)
-
         for base in list(self.arrays):
             if base not in found:
                 del self.arrays[base]
-
         for base in found:
             sig = self._signature(ram, base)
             old = self.arrays.get(base)
-
             if old is None:   # leftovers present at startup are old; anything later is a new battle
                 self.arrays[base] = (sig, -2.0 if self.first_poll else now)
             elif old[0] != sig:
                 self.arrays[base] = (sig, now)
-
         self.first_poll = False
         none = {"party_active": None, "enemy_active": None, "battle": None}
-
         if not self.arrays:
             self._live_base = None
             return none
@@ -250,7 +241,6 @@ class BattleState:
         base = max(self.arrays, key=lambda b: self.arrays[b][1])
         changed = self.arrays[base][1]
         you, foe = Battler.read(ram, base), Battler.read(ram, base + BM_SIZE)
-
         if you.pid in self.party and self.party[you.pid][1] > changed:
             self._live_base = None
             return none   # party updated after the battle data: battle is over
@@ -259,6 +249,5 @@ class BattleState:
             self.battle_id += 1          # a new battle started
             self._live_base = base
         index = lambda mons, pid: next((i for i, m in enumerate(mons) if m and m.pid == pid), None)
-
         return {"party_active": index(party, you.pid), "enemy_active": index(enemy, foe.pid),
                 "battle": {"id": self.battle_id, "you": you, "foe": foe}}

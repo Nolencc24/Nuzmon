@@ -45,7 +45,6 @@ def _prng(seed: int):
 def _xor_words(data: bytes, seed: int) -> bytes:
     rng = _prng(seed)
     words = struct.unpack(f"<{len(data) // 2}H", data)
-    
     return struct.pack(f"<{len(words)}H", *(w ^ next(rng) for w in words))
 
 
@@ -55,7 +54,6 @@ def shift_value(pid: int) -> int:
 
 def checksum(block_data: bytes) -> int:
     """Sum of the 64 decrypted words from 0x08-0x87, truncated to 16 bits."""
-
     return sum(struct.unpack("<64H", block_data)) & 0xFFFF
 
 
@@ -71,7 +69,6 @@ def decrypt(raw: bytes) -> bytes:
     out = raw[:8] + blocks
     if len(raw) >= PARTY_SIZE:
         out += _xor_words(raw[STORED_SIZE:PARTY_SIZE], pid)
-
     return out
 
 
@@ -82,10 +79,8 @@ def encrypt(plain: bytes) -> bytes:
     by_letter = {l: plain[8 + i * BLOCK_SIZE: 8 + (i + 1) * BLOCK_SIZE] for i, l in enumerate("ABCD")}
     shuffled = b"".join(by_letter[l] for l in order)
     out = plain[:8] + _xor_words(shuffled, chk)
-
     if len(plain) >= PARTY_SIZE:
         out += _xor_words(plain[STORED_SIZE:PARTY_SIZE], pid)
-
     return out
 
 
@@ -128,6 +123,19 @@ class Pokemon:
     in_battle: bool = False   # True when HP/status come from the live in-battle copy
 
 
+def ivs_from_word(iv_word: int) -> dict:
+    """The packed 32-bit IV value -> {"HP": .., "Atk": .., ...} (5 bits each, memory order)."""
+    return {s: (iv_word >> (5 * i)) & 31 for i, s in enumerate(STAT_NAMES)}
+
+
+def hidden_power_of(ivs: dict) -> tuple:
+    """(type, power) of Hidden Power for these IVs (Gen 3-5 formula, power 30-70)."""
+    # bit order HP, Atk, Def, Spe, SpA, SpD (same as memory order)
+    t = sum((ivs[s] & 1) << i for i, s in enumerate(STAT_NAMES))
+    p = sum(((ivs[s] >> 1) & 1) << i for i, s in enumerate(STAT_NAMES))
+    return HP_TYPES[t * 15 // 63], p * 40 // 63 + 30
+
+
 def _status_text(b: int) -> str:
     if b & 0x07:
         return f"Asleep ({b & 0x07})"
@@ -161,17 +169,14 @@ def parse(raw: bytes, already_decrypted: bool = False) -> Pokemon | None:
     moves = [(move_name(m), pp) for m, pp in zip(move_ids, pps) if m]
 
     iv_word = struct.unpack_from("<I", d, 0x38)[0]
-    ivs = {s: (iv_word >> (5 * i)) & 31 for i, s in enumerate(STAT_NAMES)}
+    ivs = ivs_from_word(iv_word)
 
     flags = d[0x40]
     gender = "—" if flags & 0x04 else ("F" if flags & 0x02 else "M")
 
     shiny = (tid ^ sid ^ (pid >> 16) ^ (pid & 0xFFFF)) < 8
 
-    # Hidden Power: bit order HP, Atk, Def, Spe, SpA, SpD (same as memory order)
-    t = sum((ivs[s] & 1) << i for i, s in enumerate(STAT_NAMES))
-    p = sum(((ivs[s] >> 1) & 1) << i for i, s in enumerate(STAT_NAMES))
-    hidden_power = (HP_TYPES[t * 15 // 63], p * 40 // 63 + 30)
+    hidden_power = hidden_power_of(ivs)
 
     # Platinum/HGSS store egg/met locations at 0x44/0x46; Diamond/Pearl used 0x7E/0x80.
     # Same fallback PKHeX uses: take the newer field when it's set.
@@ -221,7 +226,6 @@ def read_dump(path: str) -> dict:
         raise IncompleteDump(path)
 
     meta, party, enemy = {}, [None] * 6, [None] * 6
-
     for line in lines:
         key, _, val = line.strip().partition("=")
         if not key:

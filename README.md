@@ -41,7 +41,8 @@ tracker/
     style.py                stylesheet / colors
     widgets.py              reusable widgets: Card, Row, MovePicker
     pages/
-      battle_page.py        the Battle tab
+      battle_page.py        the Battle tab (teams)
+      damage_calc.py        the damage calculator in the middle of the Battle tab
       blank_page.py         placeholder for unbuilt tabs
 tests/                      run each with python tests/<file>.py
 tools/

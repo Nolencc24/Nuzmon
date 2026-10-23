@@ -1,5 +1,5 @@
 """
-Saved user data: SQLite.
+Saved user data (things you create, which must survive restarts): SQLite.
 
 Reference data (moves, species...) is read-only JSON in tracker/data/. This module is for
 data the app *writes*, like encounters per route later on. It lives in userdata/tracker.db
@@ -44,12 +44,10 @@ def connect(path: str = DEFAULT_PATH) -> sqlite3.Connection:
     """Open (creating if needed) the database and bring its schema up to date."""
     if path != ":memory:":
         os.makedirs(os.path.dirname(path), exist_ok=True)
-
     db = sqlite3.connect(path)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys = ON")
     migrate(db)
-    
     return db
 
 
@@ -68,10 +66,8 @@ def current_run(db: sqlite3.Connection, game: str, trainer_id: int | None = None
         "SELECT id FROM runs WHERE game = ? AND trainer_id IS ? AND secret_id IS ? AND NOT archived "
         "ORDER BY id DESC LIMIT 1", (game, trainer_id, secret_id)).fetchone()
     if row:
-        return row["id"] 
-    
+        return row["id"]
     with db:
         cur = db.execute("INSERT INTO runs (name, game, trainer_id, secret_id) VALUES (?, ?, ?, ?)",
                          (name or f"{game} run", game, trainer_id, secret_id))
-        
     return cur.lastrowid

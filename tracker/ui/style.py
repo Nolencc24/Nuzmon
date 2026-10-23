@@ -31,4 +31,10 @@ QComboBox QLineEdit { background: transparent; border: none; padding: 0; }
 QAbstractItemView { background: #22252c; border: 1px solid #343946; selection-background-color: #3a6ff7;
                     selection-color: white; outline: none; }
 QLabel#movetag { color: #9aa3b5; font-size: 11px; }
+QLineEdit#power { background: #262a32; border: 1px solid #343946; border-radius: 4px; padding: 3px 2px; min-height: 18px; }
+QLineEdit#power:focus { border-color: #3a6ff7; }
+QComboBox:disabled, QLineEdit:disabled, QPushButton:disabled { color: #4a505c; }
+QPushButton#crit { background: #262a32; border: 1px solid #343946; border-radius: 4px; padding: 4px 0; color: #9aa3b5; }
+QPushButton#crit:hover { border-color: #4a5160; }
+QPushButton#crit:checked { background: #e8a13a; border-color: #e8a13a; color: #16181d; font-weight: 600; }
 """.replace("ASSETS", ASSETS)
