@@ -1,0 +1,11 @@
+{
+  "name": "soulsilver-tracker-build-data",
+  "private": true,
+  "description": "Exports Gen 4 game data from Pokémon Showdown into tracker/data/*.json",
+  "type": "module",
+  "scripts": { "build": "node build_data.mjs" },
+  "dependencies": {
+    "@pkmn/data": "0.10.11",
+    "@pkmn/dex": "0.10.11"
+  }
+}

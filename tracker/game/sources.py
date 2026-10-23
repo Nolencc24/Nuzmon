@@ -3,7 +3,11 @@ Data sources for the window. Each has a poll() method returning
 (data or None, status message or None); data is None when nothing changed.
 
 data = {"meta": {...}, "party": [Pokemon|None x6], "enemy": [Pokemon|None x6],
-        "party_active": index or None, "enemy_active": index or None}
+        "party_active": index or None, "enemy_active": index or None,
+        "battle": None outside battle, else {"id": int, "you": Battler, "foe": Battler}}
+
+"battle" (memory mode only) comes straight from the battle data, so it also covers wild
+Pokémon, and its "id" goes up by one for each new battle (handy for logging encounters).
 """
 
 from __future__ import annotations
@@ -35,6 +39,7 @@ class MemorySource:
     def _connect(self):
         pid = self.fixed_pid or find_desmume_pid(self.name_hint)
         mem = DesmumeMemory(pid)
+        
         try:
             mem.locate()
         except NotFound:
@@ -54,7 +59,6 @@ class MemorySource:
                 return None, f"{e}  Retrying…"
         try:
             snap = self.mem.snapshot()
-
         except OSError:
             self.mem.close()
             self.mem, self.last_shown = None, None   # DeSmuME closed or game reset: search again
@@ -62,20 +66,23 @@ class MemorySource:
 
         party = [parse(b) for b in snap["party"]]
         enemy = [parse(b) for b in snap["enemy"]]
+
         for m in party:
             if m is not None:   # remember the party's own values before battle HP overrides them
                 m._party_sync = (m.hp, m.max_hp, m.status, tuple(pp for _, pp in m.moves))
+
         p0 = snap["base"] + PARTY_OFFSET - DS_RAM_START
         e0 = snap["base"] + ENEMY_OFFSET - DS_RAM_START
         skip = {o + i * PARTY_SIZE for o in (p0, e0) for i in range(6)}
         self.battle.apply(snap["ram"], party + enemy, skip)
-        party_active, enemy_active = self.state.update(snap["ram"], party, enemy, self.battle)
+        state = self.state.update(snap["ram"], party, enemy, self.battle)
+        battle = state["battle"]
 
         # only redraw when something visible changed
         shown = (snap["base"], tuple(snap["party"]), tuple(snap["enemy"]),
                  tuple((m.hp, m.max_hp, m.status) if m else None for m in party + enemy),
-                 party_active, enemy_active)
-        
+                 state["party_active"], state["enemy_active"],
+                 battle and (battle["id"], battle["you"], battle["foe"]))
         if shown == self.last_shown:
             return None, None
         
@@ -85,8 +92,9 @@ class MemorySource:
                      "source": f"DeSmuME pid {self.mem.pid}"},
             "party": party,
             "enemy": enemy,
-            "party_active": party_active,   # index of the Pokémon you have out, or None
-            "enemy_active": enemy_active,   # index of the foe's Pokémon, or None
+            "party_active": state["party_active"],   # index of the Pokémon you have out, or None
+            "enemy_active": state["enemy_active"],   # index of the foe's Pokémon, or None
+            "battle": battle,
         }
         return data, None
 
@@ -124,7 +132,6 @@ def write_demo_file() -> str:
     lines += [f"P{i}={empty}" for i in range(3, 7)]
     lines += [f"E1={p2}", f"E2={p1}"] + [f"E{i}={empty}" for i in range(3, 7)]
     path = os.path.join(tempfile.gettempdir(), "ss_dump_demo.txt")
-    
     with open(path, "w", encoding="ascii") as f:
         f.write("\n".join(lines) + "\n")
     return path

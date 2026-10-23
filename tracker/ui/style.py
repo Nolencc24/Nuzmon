@@ -1,5 +1,10 @@
 """The app's stylesheet. Colors live here so every page looks the same."""
 
+import os
+
+# Qt stylesheets need image paths with forward slashes, even on Windows.
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets").replace("\\", "/")
+
 STYLE = """
 QWidget { background: #16181d; color: #d8dce4; font-family: 'Segoe UI', sans-serif; font-size: 12px; }
 QLabel { background: transparent; }
@@ -17,4 +22,13 @@ QLabel#name { font-size: 15px; font-weight: 600; }
 QLabel#dim  { color: #7d8492; }
 QLabel#cell { font-family: Consolas, 'DejaVu Sans Mono', monospace; }
 QProgressBar { background: #2c3039; border: none; border-radius: 4px; height: 8px; text-align: center; }
-"""
+QFrame#calcside { background: #1f2229; border: 1px solid #2c3039; border-radius: 8px; }
+QComboBox { background: #262a32; border: 1px solid #343946; border-radius: 4px; padding: 3px 6px; min-height: 18px; }
+QComboBox:focus { border-color: #3a6ff7; }
+QComboBox::drop-down { border: none; width: 18px; }
+QComboBox::down-arrow { image: url("ASSETS/down_arrow.svg"); width: 10px; height: 6px; }
+QComboBox QLineEdit { background: transparent; border: none; padding: 0; }
+QAbstractItemView { background: #22252c; border: 1px solid #343946; selection-background-color: #3a6ff7;
+                    selection-color: white; outline: none; }
+QLabel#movetag { color: #9aa3b5; font-size: 11px; }
+""".replace("ASSETS", ASSETS)

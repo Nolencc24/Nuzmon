@@ -12,3 +12,9 @@ __pycache__/
 *.dsv
 *.sav
 *.ds[0-9]
+
+# saved user data (SQLite)
+userdata/
+
+# data build tool dependencies
+tools/build_data/node_modules/

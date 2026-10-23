@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                               QProgressBar, QVBoxLayout)
 
+from tracker.game import gamedata
 from tracker.game.decoder import NATURES, Pokemon
 
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
@@ -177,3 +179,64 @@ class Row(QFrame):
         self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
         self.hptext.setText(f"{hp}/{mx}")
         self.status.setText("" if m.status == "OK" else m.status)
+
+
+class MovePicker(QComboBox):
+    """A searchable move selector: type any part of a name ("punch") to filter all Gen 4 moves.
+
+    Only real move names are accepted; anything else snaps back to the last valid choice.
+    Emits move_changed(move dict or None) when the selection changes.
+    """
+
+    move_changed = Signal(object)
+
+    def __init__(self):
+        super().__init__()
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)       # typing never adds new entries
+        self.setMaxVisibleItems(14)
+        self.addItem("")                               # blank = no move
+        self.addItems(gamedata.all_move_names())
+
+        completer = QCompleter(self.model(), self)
+        completer.setFilterMode(Qt.MatchContains)      # match anywhere in the name
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setMaxVisibleItems(14)
+        self.setCompleter(completer)
+        self.lineEdit().setPlaceholderText("Search moves…")
+
+        self._current = ""
+        self.lineEdit().editingFinished.connect(self._commit)
+        self.activated.connect(lambda _index: self._commit())
+        completer.activated.connect(lambda text: self._commit(text))
+
+    def _commit(self, text: str | None = None):
+        text = (self.currentText() if text is None else text).strip()
+        found = gamedata.move_by_name(text) if text else None
+        if text and found is None:
+            # not a move name: if exactly one move contains the text, take it; else revert
+            matches = [n for n in gamedata.all_move_names() if text.lower() in n.lower()]
+            found = gamedata.move_by_name(matches[0]) if len(matches) == 1 else None
+            if found is None:
+                self.setEditText(self._current)
+                return
+        self._select(found["name"] if found else "")
+
+    def _select(self, name: str):
+        self.blockSignals(True)
+        self.setCurrentIndex(max(self.findText(name, Qt.MatchFixedString), 0))
+        self.setEditText(name)
+        self.blockSignals(False)
+        if name != self._current:
+            self._current = name
+            self.move_changed.emit(self.move())
+
+    def set_move(self, name: str):
+        """Select a move by name ("" for none)."""
+        found = gamedata.move_by_name(name) if name else None
+        self._select(found["name"] if found else "")
+
+    def move(self) -> dict | None:
+        """The selected move's data (type, power, category...), or None."""
+        return gamedata.move_by_name(self._current) if self._current else None

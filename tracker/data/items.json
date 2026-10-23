@@ -1,0 +1,1454 @@
+{
+ "1": {
+  "name": "Master Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "2": {
+  "name": "Ultra Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "3": {
+  "name": "Great Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "4": {
+  "name": "Poke Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "6": {
+  "name": "Net Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "7": {
+  "name": "Dive Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "8": {
+  "name": "Nest Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "9": {
+  "name": "Repeat Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "10": {
+  "name": "Timer Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "11": {
+  "name": "Luxury Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "12": {
+  "name": "Premier Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "13": {
+  "name": "Dusk Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "14": {
+  "name": "Heal Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "15": {
+  "name": "Quick Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "43": {
+  "name": "Berry Juice",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "80": {
+  "name": "Sun Stone",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "81": {
+  "name": "Moon Stone",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "82": {
+  "name": "Fire Stone",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "83": {
+  "name": "Thunder Stone",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "84": {
+  "name": "Water Stone",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "85": {
+  "name": "Leaf Stone",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "99": {
+  "name": "Root Fossil",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "100": {
+  "name": "Claw Fossil",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "101": {
+  "name": "Helix Fossil",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "102": {
+  "name": "Dome Fossil",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "103": {
+  "name": "Old Amber",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "104": {
+  "name": "Armor Fossil",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "105": {
+  "name": "Skull Fossil",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "106": {
+  "name": "Rare Bone",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "107": {
+  "name": "Shiny Stone",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "108": {
+  "name": "Dusk Stone",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "109": {
+  "name": "Dawn Stone",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "110": {
+  "name": "Oval Stone",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "112": {
+  "name": "Griseous Orb",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "135": {
+  "name": "Adamant Orb",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "136": {
+  "name": "Lustrous Orb",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "137": {
+  "name": "Mail",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "149": {
+  "name": "Cheri Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Fire"
+  },
+  "is_berry": true
+ },
+ "150": {
+  "name": "Chesto Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Water"
+  },
+  "is_berry": true
+ },
+ "151": {
+  "name": "Pecha Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Electric"
+  },
+  "is_berry": true
+ },
+ "152": {
+  "name": "Rawst Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Grass"
+  },
+  "is_berry": true
+ },
+ "153": {
+  "name": "Aspear Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Ice"
+  },
+  "is_berry": true
+ },
+ "154": {
+  "name": "Leppa Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Fighting"
+  },
+  "is_berry": true
+ },
+ "155": {
+  "name": "Oran Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Poison"
+  },
+  "is_berry": true
+ },
+ "156": {
+  "name": "Persim Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Ground"
+  },
+  "is_berry": true
+ },
+ "157": {
+  "name": "Lum Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Flying"
+  },
+  "is_berry": true
+ },
+ "158": {
+  "name": "Sitrus Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Psychic"
+  },
+  "is_berry": true
+ },
+ "159": {
+  "name": "Figy Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Bug"
+  },
+  "is_berry": true
+ },
+ "160": {
+  "name": "Wiki Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Rock"
+  },
+  "is_berry": true
+ },
+ "161": {
+  "name": "Mago Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Ghost"
+  },
+  "is_berry": true
+ },
+ "162": {
+  "name": "Aguav Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Dragon"
+  },
+  "is_berry": true
+ },
+ "163": {
+  "name": "Iapapa Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Dark"
+  },
+  "is_berry": true
+ },
+ "164": {
+  "name": "Razz Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Steel"
+  },
+  "is_berry": true
+ },
+ "165": {
+  "name": "Bluk Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Fire"
+  },
+  "is_berry": true
+ },
+ "166": {
+  "name": "Nanab Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Water"
+  },
+  "is_berry": true
+ },
+ "167": {
+  "name": "Wepear Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Electric"
+  },
+  "is_berry": true
+ },
+ "168": {
+  "name": "Pinap Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Grass"
+  },
+  "is_berry": true
+ },
+ "169": {
+  "name": "Pomeg Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Ice"
+  },
+  "is_berry": true
+ },
+ "170": {
+  "name": "Kelpsy Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Fighting"
+  },
+  "is_berry": true
+ },
+ "171": {
+  "name": "Qualot Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Poison"
+  },
+  "is_berry": true
+ },
+ "172": {
+  "name": "Hondew Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Ground"
+  },
+  "is_berry": true
+ },
+ "173": {
+  "name": "Grepa Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Flying"
+  },
+  "is_berry": true
+ },
+ "174": {
+  "name": "Tamato Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Psychic"
+  },
+  "is_berry": true
+ },
+ "175": {
+  "name": "Cornn Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Bug"
+  },
+  "is_berry": true
+ },
+ "176": {
+  "name": "Magost Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Rock"
+  },
+  "is_berry": true
+ },
+ "177": {
+  "name": "Rabuta Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Ghost"
+  },
+  "is_berry": true
+ },
+ "178": {
+  "name": "Nomel Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Dragon"
+  },
+  "is_berry": true
+ },
+ "179": {
+  "name": "Spelon Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Dark"
+  },
+  "is_berry": true
+ },
+ "180": {
+  "name": "Pamtre Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 70,
+   "type": "Steel"
+  },
+  "is_berry": true
+ },
+ "181": {
+  "name": "Watmel Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Fire"
+  },
+  "is_berry": true
+ },
+ "182": {
+  "name": "Durin Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Water"
+  },
+  "is_berry": true
+ },
+ "183": {
+  "name": "Belue Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Electric"
+  },
+  "is_berry": true
+ },
+ "184": {
+  "name": "Occa Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Fire"
+  },
+  "is_berry": true
+ },
+ "185": {
+  "name": "Passho Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Water"
+  },
+  "is_berry": true
+ },
+ "186": {
+  "name": "Wacan Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Electric"
+  },
+  "is_berry": true
+ },
+ "187": {
+  "name": "Rindo Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Grass"
+  },
+  "is_berry": true
+ },
+ "188": {
+  "name": "Yache Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Ice"
+  },
+  "is_berry": true
+ },
+ "189": {
+  "name": "Chople Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Fighting"
+  },
+  "is_berry": true
+ },
+ "190": {
+  "name": "Kebia Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Poison"
+  },
+  "is_berry": true
+ },
+ "191": {
+  "name": "Shuca Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Ground"
+  },
+  "is_berry": true
+ },
+ "192": {
+  "name": "Coba Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Flying"
+  },
+  "is_berry": true
+ },
+ "193": {
+  "name": "Payapa Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Psychic"
+  },
+  "is_berry": true
+ },
+ "194": {
+  "name": "Tanga Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Bug"
+  },
+  "is_berry": true
+ },
+ "195": {
+  "name": "Charti Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Rock"
+  },
+  "is_berry": true
+ },
+ "196": {
+  "name": "Kasib Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Ghost"
+  },
+  "is_berry": true
+ },
+ "197": {
+  "name": "Haban Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Dragon"
+  },
+  "is_berry": true
+ },
+ "198": {
+  "name": "Colbur Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Dark"
+  },
+  "is_berry": true
+ },
+ "199": {
+  "name": "Babiri Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Steel"
+  },
+  "is_berry": true
+ },
+ "200": {
+  "name": "Chilan Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 60,
+   "type": "Normal"
+  },
+  "is_berry": true
+ },
+ "201": {
+  "name": "Liechi Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Grass"
+  },
+  "is_berry": true
+ },
+ "202": {
+  "name": "Ganlon Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Ice"
+  },
+  "is_berry": true
+ },
+ "203": {
+  "name": "Salac Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Fighting"
+  },
+  "is_berry": true
+ },
+ "204": {
+  "name": "Petaya Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Poison"
+  },
+  "is_berry": true
+ },
+ "205": {
+  "name": "Apicot Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Ground"
+  },
+  "is_berry": true
+ },
+ "206": {
+  "name": "Lansat Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Flying"
+  },
+  "is_berry": true
+ },
+ "207": {
+  "name": "Starf Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Psychic"
+  },
+  "is_berry": true
+ },
+ "208": {
+  "name": "Enigma Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Bug"
+  },
+  "is_berry": true
+ },
+ "209": {
+  "name": "Micle Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Rock"
+  },
+  "is_berry": true
+ },
+ "210": {
+  "name": "Custap Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Ghost"
+  },
+  "is_berry": true
+ },
+ "211": {
+  "name": "Jaboca Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Dragon"
+  },
+  "is_berry": true
+ },
+ "212": {
+  "name": "Rowap Berry",
+  "fling_power": 10,
+  "natural_gift": {
+   "basePower": 80,
+   "type": "Dark"
+  },
+  "is_berry": true
+ },
+ "213": {
+  "name": "Bright Powder",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "214": {
+  "name": "White Herb",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "215": {
+  "name": "Macho Brace",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "217": {
+  "name": "Quick Claw",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "219": {
+  "name": "Mental Herb",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "220": {
+  "name": "Choice Band",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "221": {
+  "name": "King's Rock",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "222": {
+  "name": "Silver Powder",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "225": {
+  "name": "Soul Dew",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "226": {
+  "name": "Deep Sea Tooth",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "227": {
+  "name": "Deep Sea Scale",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "230": {
+  "name": "Focus Band",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "232": {
+  "name": "Scope Lens",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "233": {
+  "name": "Metal Coat",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "234": {
+  "name": "Leftovers",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "235": {
+  "name": "Dragon Scale",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "236": {
+  "name": "Light Ball",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "237": {
+  "name": "Soft Sand",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "238": {
+  "name": "Hard Stone",
+  "fling_power": 100,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "239": {
+  "name": "Miracle Seed",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "240": {
+  "name": "Black Glasses",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "241": {
+  "name": "Black Belt",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "242": {
+  "name": "Magnet",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "243": {
+  "name": "Mystic Water",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "244": {
+  "name": "Sharp Beak",
+  "fling_power": 50,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "245": {
+  "name": "Poison Barb",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "246": {
+  "name": "Never-Melt Ice",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "247": {
+  "name": "Spell Tag",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "248": {
+  "name": "Twisted Spoon",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "249": {
+  "name": "Charcoal",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "250": {
+  "name": "Dragon Fang",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "251": {
+  "name": "Silk Scarf",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "252": {
+  "name": "Up-Grade",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "253": {
+  "name": "Shell Bell",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "254": {
+  "name": "Sea Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "255": {
+  "name": "Lax Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "256": {
+  "name": "Lucky Punch",
+  "fling_power": 40,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "257": {
+  "name": "Metal Powder",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "258": {
+  "name": "Thick Club",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "259": {
+  "name": "Stick",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "265": {
+  "name": "Wide Lens",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "266": {
+  "name": "Muscle Band",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "267": {
+  "name": "Wise Glasses",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "268": {
+  "name": "Expert Belt",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "269": {
+  "name": "Light Clay",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "270": {
+  "name": "Life Orb",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "271": {
+  "name": "Power Herb",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "272": {
+  "name": "Toxic Orb",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "273": {
+  "name": "Flame Orb",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "274": {
+  "name": "Quick Powder",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "275": {
+  "name": "Focus Sash",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "276": {
+  "name": "Zoom Lens",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "277": {
+  "name": "Metronome",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "278": {
+  "name": "Iron Ball",
+  "fling_power": 130,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "279": {
+  "name": "Lagging Tail",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "280": {
+  "name": "Destiny Knot",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "281": {
+  "name": "Black Sludge",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "282": {
+  "name": "Icy Rock",
+  "fling_power": 40,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "283": {
+  "name": "Smooth Rock",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "284": {
+  "name": "Heat Rock",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "285": {
+  "name": "Damp Rock",
+  "fling_power": 60,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "286": {
+  "name": "Grip Claw",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "287": {
+  "name": "Choice Scarf",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "288": {
+  "name": "Sticky Barb",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "289": {
+  "name": "Power Bracer",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "290": {
+  "name": "Power Belt",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "291": {
+  "name": "Power Lens",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "292": {
+  "name": "Power Band",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "293": {
+  "name": "Power Anklet",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "294": {
+  "name": "Power Weight",
+  "fling_power": 70,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "295": {
+  "name": "Shed Shell",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "296": {
+  "name": "Big Root",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "297": {
+  "name": "Choice Specs",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "298": {
+  "name": "Flame Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "299": {
+  "name": "Splash Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "300": {
+  "name": "Zap Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "301": {
+  "name": "Meadow Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "302": {
+  "name": "Icicle Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "303": {
+  "name": "Fist Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "304": {
+  "name": "Toxic Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "305": {
+  "name": "Earth Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "306": {
+  "name": "Sky Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "307": {
+  "name": "Mind Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "308": {
+  "name": "Insect Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "309": {
+  "name": "Stone Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "310": {
+  "name": "Spooky Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "311": {
+  "name": "Draco Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "312": {
+  "name": "Dread Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "313": {
+  "name": "Iron Plate",
+  "fling_power": 90,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "314": {
+  "name": "Odd Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "315": {
+  "name": "Rock Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "316": {
+  "name": "Full Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "317": {
+  "name": "Wave Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "318": {
+  "name": "Rose Incense",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "321": {
+  "name": "Protector",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "322": {
+  "name": "Electirizer",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "323": {
+  "name": "Magmarizer",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "324": {
+  "name": "Dubious Disc",
+  "fling_power": 50,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "325": {
+  "name": "Reaper Cloth",
+  "fling_power": 10,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "326": {
+  "name": "Razor Claw",
+  "fling_power": 80,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "327": {
+  "name": "Razor Fang",
+  "fling_power": 30,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "492": {
+  "name": "Fast Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "493": {
+  "name": "Level Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "494": {
+  "name": "Lure Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "495": {
+  "name": "Heavy Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "496": {
+  "name": "Love Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "497": {
+  "name": "Friend Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "498": {
+  "name": "Moon Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ },
+ "499": {
+  "name": "Sport Ball",
+  "fling_power": null,
+  "natural_gift": null,
+  "is_berry": false
+ }
+}
