@@ -12,7 +12,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
-from names import ABILITIES, MOVES, NATURES, SPECIES
+from .names import ABILITIES, MOVES, NATURES, SPECIES
 
 PARTY_SIZE = 236   # 0xEC
 STORED_SIZE = 136  # 0x88

@@ -22,9 +22,8 @@ from __future__ import annotations
 
 import struct
 import sys
-import time
 
-from decoder import PARTY_SIZE, _status_text, parse
+from .decoder import PARTY_SIZE, parse
 
 DS_RAM_START = 0x02000000
 DS_RAM_SIZE = 0x400000          # 4 MB, mirrored up to 0x02FFFFFF
@@ -42,12 +41,6 @@ PARTY_OFFSET = 0x12
 ENEMY_OFFSET = 0x4EFD2
 
 CHUNK = 16 * 1024 * 1024
-
-# In-battle copy of each active Pokémon ("BattleMon" in the pret/pokeheartgold decompilation).
-# During a battle the game updates HP here and only writes it back to the party afterwards.
-BM_SPECIES, BM_LEVEL, BM_HP, BM_MAX_HP, BM_PID, BM_STATUS = 0x00, 0x34, 0x4C, 0x50, 0x68, 0x6C
-BM_PP = 0x2C
-BM_SIZE = 0xC0   # battleMons[4]: [you, foe, your partner, foe's partner] (partners only in doubles)
 
 
 class NotFound(Exception):
@@ -206,7 +199,7 @@ class DesmumeMemory:
         """Search DeSmuME's memory for DS main RAM. Takes a second or two.
 
         report: optional function called with a line of text for each header found
-        (used by --diagnose).
+        (used by main.py --diagnose).
         """
         self.scanned = 0
         for addr, code in self.find_headers():
@@ -255,240 +248,15 @@ class DesmumeMemory:
         return {"base": base, "party": split(p), "enemy": split(e), "ram": ram}
 
 
-class BattleHP:
-    """Finds the in-battle copy of each Pokémon and decides which HP value is current.
-
-    Battle copies linger in memory after a battle ends, and a new battle may create a
-    fresh copy elsewhere. So for each Pokémon we track every copy (the party entry plus
-    any battle copies) and show whichever one changed most recently.
-    """
-
-    def __init__(self):
-        self.seen = {}    # pid -> {"party" or RAM offset: (value, time it last changed)}
-        self.first_poll = True
-
-    @staticmethod
-    def _matches(ram: bytes, off: int, mon) -> bool:
-        if off < 0 or off % 4 or off + 0x70 > len(ram):
-            return False
-        species = struct.unpack_from("<H", ram, off + BM_SPECIES)[0]
-        hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
-        return species == mon.species_id and 0 < max_hp <= 999 and 0 <= hp <= max_hp
-
-    def find_all(self, ram: bytes, mon) -> list[int]:
-        """RAM offsets of every battle copy of this Pokémon (matched by PID + species)."""
-        key = struct.pack("<I", mon.pid)
-        found, i = [], ram.find(key)
-        while i != -1:
-            if self._matches(ram, i - BM_PID, mon):
-                found.append(i - BM_PID)
-            i = ram.find(key, i + 1)
-        return found
-
-    @staticmethod
-    def find_party_copies(ram: bytes, mon, skip=()) -> list[int]:
-        """RAM offsets of other full Pokémon entries with this PID, e.g. the battle-only copy
-        of the party the game makes at the start of a battle. When a Pokémon is switched
-        out, its HP is saved there (the real party is only updated when the battle ends)."""
-        key = struct.pack("<I", mon.pid)
-        found, i = [], ram.find(key)
-        while i != -1:
-            if i % 4 == 0 and i not in skip and i + PARTY_SIZE <= len(ram):
-                copy = parse(ram[i:i + PARTY_SIZE])
-                if copy is not None and copy.species_id == mon.species_id and copy.hp is not None:
-                    found.append(i)
-            i = ram.find(key, i + 1)
-        return found
-
-    def apply(self, ram: bytes, mons, skip=()) -> None:
-        """skip: RAM offsets of the real party/enemy entries (already read as "party")."""
-        now = time.monotonic()
-        for mon in mons:
-            if mon is None or mon.hp is None:
-                continue
-            rec = self.seen.setdefault(mon.pid, {})
-            values = {"party": (mon.hp, mon.max_hp, mon.status)}
-            for off in self.find_all(ram, mon):
-                hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
-                status = _status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF)
-                values[("battler", off)] = (hp, max_hp, status)
-            for off in self.find_party_copies(ram, mon, skip):
-                copy = parse(ram[off:off + PARTY_SIZE])
-                values[("copy", off)] = (copy.hp, copy.max_hp, copy.status)
-
-            for key, val in values.items():
-                if key not in rec:
-                    # Anything already in memory when the tracker starts counts as "old"
-                    # (party slightly newer than battle copies), so a leftover copy from an
-                    # earlier battle can't win. Copies that appear later are new.
-                    if self.first_poll:
-                        rec[key] = (val, -1.0 if key == "party" else -2.0)
-                    else:
-                        rec[key] = (val, now if key != "party" else now - 1e-6)
-                elif rec[key][0] != val:
-                    rec[key] = (val, now)
-            for key in [k for k in rec if k not in values]:
-                del rec[key]   # that copy is gone or was overwritten
-
-            newest = max(rec, key=lambda k: rec[k][1])
-            if newest != "party":
-                mon.hp, mon.max_hp, mon.status = rec[newest][0]
-                mon.stats["HP"] = mon.max_hp
-                mon.in_battle = True
-        self.first_poll = False
-
-
-class BattleState:
-    """Works out which Pokémon are currently out in battle.
-
-    The game keeps the active battlers in an array: battleMons[0] is yours, [1] the foe's.
-    Switching overwrites that slot. The array stays in memory after the battle, so a battle
-    counts as over once your active Pokémon's party entry (HP, status, PP, which the game
-    writes back when a battle ends) has changed more recently than the array.
-    """
-
-    def __init__(self):
-        self.arrays = {}   # RAM offset -> (signature, time it last changed)
-        self.party = {}    # pid -> (sync values, time they last changed)
-        self.first_poll = True
-
-    @staticmethod
-    def _valid(ram: bytes, off: int) -> bool:
-        if off < 0 or off + BM_SIZE > len(ram):
-            return False
-        species = struct.unpack_from("<H", ram, off + BM_SPECIES)[0]
-        hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
-        return 1 <= species <= 493 and 1 <= ram[off + BM_LEVEL] <= 100 and 0 < max_hp <= 999 and 0 <= hp <= max_hp
-
-    @staticmethod
-    def _signature(ram: bytes, base: int):
-        return tuple(ram[base + i * BM_SIZE: base + (i + 1) * BM_SIZE] for i in range(2))
-
-    def update(self, ram: bytes, party, enemy, finder: BattleHP):
-        """Returns (index of your active Pokémon, index of the foe's), or (None, None)."""
-        now = time.monotonic()
-
-        for mon in party:
-            if mon is None or mon.hp is None:
-                continue
-            # values straight from the party data (not the battle-adjusted ones)
-            vals = getattr(mon, "_party_sync")
-            old = self.party.get(mon.pid)
-            if old is None:
-                self.party[mon.pid] = (vals, -1.0 if self.first_poll else now - 1e-6)
-            elif old[0] != vals:
-                self.party[mon.pid] = (vals, now)
-
-        # Candidate arrays: anywhere one of your Pokémon sits in slot 0 (or slot 2 in doubles)
-        # with another valid battler right after it.
-        found = set()
-        for mon in party:
-            if mon is None:
-                continue
-            for off in finder.find_all(ram, mon):
-                for base in (off, off - 2 * BM_SIZE):
-                    if base >= 0 and base % 4 == 0 and self._valid(ram, base) and self._valid(ram, base + BM_SIZE):
-                        found.add(base)
-        for base in list(self.arrays):
-            if base not in found:
-                del self.arrays[base]
-        for base in found:
-            sig = self._signature(ram, base)
-            old = self.arrays.get(base)
-            if old is None:   # leftovers present at startup are old; anything later is a new battle
-                self.arrays[base] = (sig, -2.0 if self.first_poll else now)
-            elif old[0] != sig:
-                self.arrays[base] = (sig, now)
-        self.first_poll = False
-        if not self.arrays:
-            return None, None
-
-        base = max(self.arrays, key=lambda b: self.arrays[b][1])
-        changed = self.arrays[base][1]
-        my_pid = struct.unpack_from("<I", ram, base + BM_PID)[0]
-        foe_pid = struct.unpack_from("<I", ram, base + BM_SIZE + BM_PID)[0]
-        if my_pid in self.party and self.party[my_pid][1] > changed:
-            return None, None   # party updated after the battle data: battle is over
-
-        index = lambda mons, pid: next((i for i, m in enumerate(mons) if m and m.pid == pid), None)
-        return index(party, my_pid), index(enemy, foe_pid)
-
-
-class MemorySource:
-    """Data source for tracker.py: reads DeSmuME directly, reconnecting when needed."""
-
-    RETRY_SECONDS = 2.0
-
-    def __init__(self, pid: int | None = None, name_hint: str = "desmume"):
-        self.fixed_pid, self.name_hint = pid, name_hint
-        self.mem: DesmumeMemory | None = None
-        self.next_attempt = 0.0
-        self.last_shown = None
-        self.battle = BattleHP()
-        self.state = BattleState()
-
-    def _connect(self):
-        pid = self.fixed_pid or find_desmume_pid(self.name_hint)
-        mem = DesmumeMemory(pid)
-        try:
-            mem.locate()
-        except NotFound:
-            mem.close()
-            raise
-        self.mem = mem
-
-    def poll(self):
-        """Returns (data or None, status message or None). data is None when nothing changed."""
-        if self.mem is None:
-            if time.monotonic() < self.next_attempt:
-                return None, None
-            try:
-                self._connect()
-            except NotFound as e:
-                self.next_attempt = time.monotonic() + self.RETRY_SECONDS
-                return None, f"{e}  Retrying…"
-        try:
-            snap = self.mem.snapshot()
-        except OSError:
-            self.mem.close()
-            self.mem, self.last_shown = None, None   # DeSmuME closed or game reset: search again
-            return None, "Lost DeSmuME. Searching again…"
-
-        party = [parse(b) for b in snap["party"]]
-        enemy = [parse(b) for b in snap["enemy"]]
-        for m in party:
-            if m is not None:   # remember the party's own values before battle HP overrides them
-                m._party_sync = (m.hp, m.max_hp, m.status, tuple(pp for _, pp in m.moves))
-        p0 = snap["base"] + PARTY_OFFSET - DS_RAM_START
-        e0 = snap["base"] + ENEMY_OFFSET - DS_RAM_START
-        skip = {o + i * PARTY_SIZE for o in (p0, e0) for i in range(6)}
-        self.battle.apply(snap["ram"], party + enemy, skip)
-        party_active, enemy_active = self.state.update(snap["ram"], party, enemy, self.battle)
-
-        # only redraw when something visible changed
-        shown = (snap["base"], tuple(snap["party"]), tuple(snap["enemy"]),
-                 tuple((m.hp, m.max_hp, m.status) if m else None for m in party + enemy),
-                 party_active, enemy_active)
-        if shown == self.last_shown:
-            return None, None
-        self.last_shown = shown
-        data = {
-            "meta": {"game": self.mem.game, "base": f"0x{snap['base']:08X}",
-                     "source": f"DeSmuME pid {self.mem.pid}"},
-            "party": party,
-            "enemy": enemy,
-            "party_active": party_active,   # index of the Pokémon you have out, or None
-            "enemy_active": enemy_active,   # index of the foe's Pokémon, or None
-        }
-        return data, None
-
-
 # ---------------------------------------------------------------- diagnostics
 
 def diagnose(pid: int | None = None) -> None:
-    """python memreader.py --diagnose : print what the tracker sees inside DeSmuME."""
+    """python main.py --diagnose : print what the tracker sees inside DeSmuME."""
     import platform
+
     import psutil
+
+    from .battle import BM_HP, BattleHP
 
     print(f"Python {platform.python_version()} {platform.architecture()[0]} on {platform.platform()}")
     try:
@@ -524,12 +292,3 @@ def diagnose(pid: int | None = None) -> None:
     except NotFound as e:
         print(f"\nNOT FOUND. Scanned {mem.scanned / 2**20:.0f} MB. {e}")
     mem.close()
-
-
-if __name__ == "__main__":
-    import argparse
-    ap = argparse.ArgumentParser(description="DeSmuME memory reader")
-    ap.add_argument("--diagnose", action="store_true", help="print what the tracker finds in DeSmuME")
-    ap.add_argument("--pid", type=int)
-    args = ap.parse_args()
-    diagnose(args.pid) if args.diagnose else ap.print_help()

@@ -1,68 +1,67 @@
-# SoulSilver Tracker (starter)
+# SoulSilver Tracker
 
 Reads your party and the opponent's Pokémon straight out of DeSmuME's memory and shows
-stats, IVs, EVs, HP, nature, ability, moves and Hidden Power in a separate window.
+stats, IVs, EVs, HP, nature, ability, moves and Hidden Power. HP updates live during
+battle, and whichever Pokémon is out gets the big expanded card.
 
-```
-DeSmuME's memory ──(memreader.py reads it from outside)──> decoder.py ──> window
-```
-Nothing runs inside the emulator, so fast forward stays smooth. The Lua script is still
-included as a fallback (`--lua`).
-
-## Files
-
-| File | What it does |
-|---|---|
-| `memreader.py` | Finds DeSmuME, locates the DS's RAM inside it, and reads the party/enemy bytes. |
-| `tracker.lua` | Fallback only: dumps the same bytes to `ss_dump.txt` from inside DeSmuME (slows fast forward). |
-| `decoder.py` | Decrypts and parses Gen 4 Pokémon data (checksum, unshuffle, battle stats). |
-| `tracker.py` | The window. Polls DeSmuME 4× a second and redraws when anything changes. |
-| `names.py` | Species, move, ability and nature names. |
-| `test_decoder.py` | Checks the decoder against real Gen 4 Pokémon. |
+Nothing runs inside the emulator, so fast forward stays smooth.
 
 ## Setup (Windows)
 
-1. Install Python 3.10+ and run `pip install -r requirements.txt`
-2. Put all these files in one folder.
-3. Check the decoder works: `python test_decoder.py`
-4. See the window with sample data: `python tracker.py --demo`
+1. Install 64-bit Python 3.10+ and run `pip install -r requirements.txt`
+2. Check the decoder works: `python tests/test_decoder.py`
+3. See the window with sample data: `python main.py --demo`
 
 ## Running it
 
 1. Open SoulSilver in DeSmuME and load your save (get past the title screen).
-2. Run `python tracker.py`. It finds DeSmuME by itself; no Lua script needed.
+2. Run `python main.py`. It finds DeSmuME by itself.
 
-Use 64-bit Python. If DeSmuME runs as administrator, run the tracker as administrator too.
-If you have more than one DeSmuME open, pass the right one with `--pid <process id>`
-(from Task Manager → Details).
+If DeSmuME runs as administrator, run the tracker as administrator too. With more than
+one DeSmuME open, pick one with `--pid <process id>` (Task Manager → Details).
 
-Fallback: load `tracker.lua` in DeSmuME (**Tools → Lua Scripting**) and run `python tracker.py --lua`.
+## Project layout
 
-The bottom bar shows how many slots decoded. Every slot shown has passed the game's own
-checksum, so if a Pokémon appears, the data is correct.
+```
+main.py                     start here: picks the data source, opens the window
+tracker/
+  game/                     reading the game (no UI code)
+    decoder.py              decrypt + parse Gen 4 Pokémon data
+    names.py                species / move / ability / nature names
+    memreader.py            find DeSmuME and the DS's RAM inside it
+    battle.py               live battle HP + which Pokémon is out
+    sources.py              data sources the window polls (memory, Lua file, demo)
+    samples.py              two real Pokémon for tests and --demo
+  ui/
+    main_window.py          tabs + status bar; polls the source and feeds every page
+    style.py                stylesheet / colors
+    widgets.py              reusable Card and Row widgets
+    pages/
+      battle_page.py        the Battle tab
+      blank_page.py         placeholder for unbuilt tabs
+tests/test_decoder.py
+tools/tracker.lua           Lua fallback (slows fast forward; use only if needed)
+```
+
+### Adding a page
+
+1. Create `tracker/ui/pages/my_page.py` with a `QWidget` subclass.
+2. If it needs game data, give it `update_data(self, data)`. The window calls it with
+   `data["party"]`, `data["enemy"]` (lists of 6 Pokémon or None), `data["party_active"]`
+   and `data["enemy_active"]` (index of the Pokémon out in battle, or None).
+3. In `tracker/ui/main_window.py`, replace a `("", BlankPage)` entry in `PAGES` with
+   `("My tab", MyPage)`.
 
 ## Troubleshooting
 
-- **"no SoulSilver/HeartGold RAM was found yet"** — load your save; the tracker locks on once
-  you're past the title screen and keeps retrying until then.
-- **"Waiting for ss_dump.txt"** (`--lua` mode) — DeSmuME may be writing the file somewhere else. Set
-  `OUTPUT_FILE` in `tracker.lua` to a full path (e.g. `C:/tracker/ss_dump.txt`) and run
-  `python tracker.py --lua --file C:/tracker/ss_dump.txt`.
-- **"0 party slots decoded"** — on the title screen this is normal. In-game, the address is
-  wrong for your ROM. Check the game code in the status bar: US SoulSilver is `IPGE`.
-  European ROMs are detected automatically in direct mode; in `--lua` mode change
-  `BASE_POINTER` to `0x021D110C`.
-- **Opponent tab shows an old Pokémon outside battle** — the game leaves the last battle's
-  data in memory. Expected for now.
-
-## Things still to verify on real gameplay
-
-- Whether HP (yours and the opponent's) updates live during battle, or only when the battle
-  ends. If it lags, the live value lives in a separate battle structure; find it with
-  DeSmuME's **Tools → RAM Search** while taking damage.
-- Held items are read (`held_item` in `decoder.py`) but shown only as IDs, so not displayed yet.
+- **"no SoulSilver/HeartGold RAM was found yet"**: load your save; the tracker locks on
+  once you're past the title screen and keeps retrying until then.
+- **Anything else not being found**: run `python main.py --diagnose` and check what it reports.
+- **Lua fallback**: load `tools/tracker.lua` in DeSmuME (**Tools → Lua Scripting**, needs
+  `lua51.dll` next to `desmume.exe`) and run `python main.py --lua`.
 
 ## References
 
 - Data structure: Project Pokémon, *PKM Structure – Generation 4*
 - RAM addresses: yPokeStats by yling (github.com/yling/yPokeStats)
+- Battle structures: pret/pokeheartgold decompilation
