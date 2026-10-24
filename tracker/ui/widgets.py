@@ -428,6 +428,13 @@ class SpeciesPicker(SearchPicker):
         super().__init__(gamedata.all_species_names(), "Search Pokémon…", allow_empty=False)
 
 
+class AbilityPicker(SearchPicker):
+    """Searchable selector over every Gen 4 ability."""
+
+    def __init__(self):
+        super().__init__(gamedata.all_ability_names(), "Search abilities…", allow_empty=False)
+
+
 def nature_label(nature: str) -> str:
     """"Adamant (+Atk, -SpA)", or just "Hardy" for natures that change nothing."""
     up, down = nature_effect(nature)

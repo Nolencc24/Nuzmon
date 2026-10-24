@@ -19,9 +19,9 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLab
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_hp,
-                                with_status)
-from tracker.ui.widgets import BoundedIntValidator, MovePicker, SpeciesPicker
+from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_ability,
+                                with_hp, with_status)
+from tracker.ui.widgets import AbilityPicker, BoundedIntValidator, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
 STAGE_STATS = ["Atk", "Def", "SpA", "SpD", "Spe"]
@@ -121,6 +121,8 @@ class CalcSide(QFrame):
         header.setSpacing(6)
         self.title = QLabel(label.upper(), objectName="rowname")
         self.species = SpeciesPicker()
+        self.ability = AbilityPicker()
+        self.ability.setToolTip("Ability (the damage calculator will use it, e.g. Torrent at low HP)")
         level_label = QLabel("Lv", objectName="dim")
         self.level = QLineEdit(objectName="power")
         self.level.setValidator(BoundedIntValidator(1, 100, self.level))
@@ -130,11 +132,12 @@ class CalcSide(QFrame):
         self.reset_button = QPushButton("Reset", objectName="reset")
         self.reset_button.setToolTip("Go back to the Pokémon that's out in the game")
         self.reset_button.clicked.connect(self.reset)
-        items = [self.title, self.species, level_label, self.level, self.reset_button]
+        items = [self.title, self.species, self.ability, level_label, self.level, self.reset_button]
         if mirrored:
             items.reverse()
+        stretch = {self.species: 3, self.ability: 2}     # the pickers share the spare width
         for w in items:
-            header.addWidget(w, 1 if w is self.species else 0)
+            header.addWidget(w, stretch.get(w, 0))
         lay.addLayout(header)
 
         grid = QGridLayout()
@@ -190,12 +193,14 @@ class CalcSide(QFrame):
         self.nature_override = None   # nature picked by hand (in the big card), or None
         self.status_override = None   # status picked by hand (one of stats.STATUSES), or None
         self.stage_override = {}      # stat stages picked by hand, e.g. {"Atk": 2}
+        self.ability_override = None  # ability picked by hand, or None
         self.battler = None           # this side's live Battler in battle (has the stat stages), or None
         self.active = None            # party index of the Pokémon that's out, or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
         self.species.value_changed.connect(self._on_species)
+        self.ability.value_changed.connect(self._on_ability)
         self.level.editingFinished.connect(self._on_level)
         self._sync()
 
@@ -232,6 +237,8 @@ class CalcSide(QFrame):
             mon = with_hp(mon, *self.hp_override)
         if self.status_override is not None:
             mon = with_status(mon, self.status_override)
+        if self.ability_override is not None:
+            mon = with_ability(mon, self.ability_override)
         return mon
 
     def moves(self) -> list:
@@ -294,7 +301,7 @@ class CalcSide(QFrame):
         self._pin_to(mon)
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
-        self.hp_override = self.nature_override = self.status_override = None
+        self.hp_override = self.nature_override = self.status_override = self.ability_override = None
         self.stage_override = {}
         self._sync()
         self.subject_changed.emit()
@@ -305,7 +312,7 @@ class CalcSide(QFrame):
         self.pin_pid = self.pin_slot = self.pin_snapshot = self.pin_species = None
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
-        self.hp_override = self.nature_override = self.status_override = None
+        self.hp_override = self.nature_override = self.status_override = self.ability_override = None
         self.stage_override = {}
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
@@ -322,6 +329,15 @@ class CalcSide(QFrame):
         if slot is not None and self.active is not None and slot != self.active:
             return {}                    # a twin (same PID) that isn't the one out
         return b.stages
+
+    def _on_ability(self, name: str):
+        current = self.subject()
+        if current is None or name == current.ability:
+            return
+        self._pin()
+        self.ability_override = name
+        self._sync()
+        self.subject_changed.emit()
 
     def _on_stage(self, stat: str):
         self._pin()
@@ -379,7 +395,7 @@ class CalcSide(QFrame):
         previous = self.subject()
         self._pin()
         self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP/nature
-        self.hp_override = self.nature_override = self.status_override = None
+        self.hp_override = self.nature_override = self.status_override = self.ability_override = None
         self.stage_override = {}
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
@@ -420,6 +436,9 @@ class CalcSide(QFrame):
         """Update the header and (if the Pokémon changed) the move rows to match subject()."""
         subj = self.subject()
         self.species.set_value(form_name(subj) if subj else "", emit=False)
+        if not self.ability.lineEdit().isModified():   # don't clobber a search in progress
+            self.ability.set_value(subj.ability if subj else "", emit=False)
+        self.ability.setEnabled(subj is not None)
         if not self.level.isModified():   # don't overwrite a level you're still typing
             self.level.setText(str(subj.level) if subj is not None and subj.level else "")
         self.level.setEnabled(subj is not None)

@@ -122,6 +122,12 @@ def ability_name(ability_id: int) -> str:
     return _load("abilities.json").get(str(ability_id), f"Ability #{ability_id}")
 
 
+@cache
+def all_ability_names() -> list[str]:
+    """Every Gen 4 ability, alphabetically (for searchable pickers)."""
+    return sorted(_load("abilities.json").values())
+
+
 def item(item_id: int) -> dict | None:
     """Battle-relevant held items only (others return None)."""
     return _load("items.json").get(str(item_id))

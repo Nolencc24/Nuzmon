@@ -5,6 +5,7 @@ Stat math (Gen 3-5 formula) and Pokémon built for the calculator.
     adjusted(mon, ivs={"Spe": 31})      ... or with some IVs / EVs (or the nature) changed
     with_hp(mon, 20)                    ... or with 20 current HP
     with_status(mon, "Burned")          ... or with a status condition
+    with_ability(mon, "Torrent")        ... or with another ability
     preview("Garchomp", 40, moves)      a made-up Pokémon (IVs 31, EVs 0, neutral nature)
     from_battler(battler)               a Pokémon built from live battle data (wild Pokémon)
 """
@@ -96,6 +97,21 @@ def status_kind(status: str | None) -> str:
 def with_status(mon: Pokemon, status: str) -> Pokemon:
     """A copy of mon with another status (one of STATUSES). Returns mon itself if unchanged."""
     return mon if status == mon.status else dataclasses.replace(mon, status=status)
+
+
+def with_ability(mon: Pokemon, ability: str) -> Pokemon:
+    """A copy of mon with another ability. Returns mon itself if unchanged.
+
+    For the damage calculator later, Gen 4 abilities that change damage include:
+      * Torrent / Blaze / Overgrow / Swarm: Water / Fire / Grass / Bug moves x1.5 power
+        when HP <= 1/3 of max HP (so it depends on current HP, which can be edited)
+      * Huge Power / Pure Power: Atk x2. Hustle: Atk x1.5. Guts: Atk x1.5 with a status
+        (and a burn no longer halves Atk). Technician: moves with power <= 60 x1.5
+      * Levitate: immune to Ground. Thick Fat: Fire/Ice damage halved. Filter / Solid Rock:
+        super-effective damage x0.75. Wonder Guard: only super-effective moves hit
+      * Intimidate: the foe's Atk -1 when it comes in (shows up in the stat stages)
+    """
+    return mon if ability == mon.ability else dataclasses.replace(mon, ability=ability)
 
 
 def stage_multiplier(stage: int) -> float:

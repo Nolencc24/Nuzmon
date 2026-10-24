@@ -54,6 +54,12 @@ def test():
     assert paralyzed.status == "Paralyzed" and geo.status == "Burned" and paralyzed.stats == geo.stats
     assert stats.with_status(geo, geo.status) is geo
 
+    # abilities
+    assert stats.with_ability(geo, "Sturdy").ability == "Sturdy" and geo.ability == "Rock Head"
+    assert stats.with_ability(geo, geo.ability) is geo
+    names = gamedata.all_ability_names()
+    assert len(names) == 123 and "Torrent" in names and names == sorted(names)
+
     # turn-order speed: stat stages, then paralysis
     spe = geo.stats["Spe"]
     assert stats.speed(geo) == spe and stats.speed(geo, 1) == int(spe * 1.5)
