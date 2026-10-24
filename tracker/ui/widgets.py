@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBox
 
 from tracker.game import gamedata
 from tracker.game.decoder import Pokemon
-from tracker.game.stats import EV_MAX, EV_TOTAL_MAX, IV_MAX, nature_effect
+from tracker.game.stats import EV_MAX, EV_TOTAL_MAX, IV_MAX, hp_from_percent, hp_percent, nature_effect
 
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
 
@@ -34,7 +34,7 @@ class BoundedIntValidator(QValidator):
 
 
 class StatEdit(QLineEdit):
-    """A small numbers-only box (IVs, EVs). Emits committed(value) when you finish editing
+    """A small numbers-only box (IVs, EVs, HP). Emits committed(value) when you finish editing
     and the value actually changed. Live updates don't overwrite it while you're typing."""
 
     committed = Signal(int)
@@ -45,14 +45,21 @@ class StatEdit(QLineEdit):
         self.setAlignment(Qt.AlignRight)
         self.setFixedWidth(38)
         self._value = 0
+        self._typing = False          # True from your first keystroke until you finish
+        self.textEdited.connect(lambda _text: setattr(self, "_typing", True))
         self.editingFinished.connect(self._commit)
+
+    def set_maximum(self, maximum: int):
+        """Change the highest value you can type (e.g. max HP)."""
+        self.validator().high = maximum
 
     def show_value(self, value: int):
         self._value = value
-        if not self.hasFocus():
+        if not self._typing:
             self.setText(str(value))
 
     def _commit(self):
+        self._typing = False
         text = self.text()
         if not text or int(text) == self._value:
             self.setText(str(self._value))      # empty or unchanged: put the value back
@@ -67,10 +74,12 @@ class Card(QFrame):
     wide=True lays the card out in three columns (summary | stats | moves) instead of
     one tall column, which is how the lead Pokémon is shown.
     editable=True makes the IVs (0-31) and EVs (0-252) editable; changes are reported
-    with stat_edited("iv" or "ev", stat name, value).
+    with stat_edited("iv" or "ev", stat name, value). It also makes current HP editable,
+    as a number or as a percentage; both are reported as hp_edited(new HP).
     """
 
     stat_edited = Signal(str, str, int)
+    hp_edited = Signal(int)
 
     def __init__(self, wide: bool = False, editable: bool = False):
         super().__init__()
@@ -94,7 +103,26 @@ class Card(QFrame):
         self.hpbar = QProgressBar(textVisible=False)
         self.hptext = QLabel(objectName="dim")
         lay.addWidget(self.hpbar)
-        lay.addWidget(self.hptext)
+        if editable:
+            # HP [ 23 ] / 40   [ 58 ] %   · status
+            self.hp_edit, self.pct_edit = StatEdit(999), StatEdit(100)
+            self.hp_edit.setToolTip("Current HP")
+            self.pct_edit.setToolTip("Current HP as a percentage of max HP")
+            self.hp_edit.committed.connect(self.hp_edited.emit)
+            self.pct_edit.committed.connect(self._on_percent)
+            self.hpmax = QLabel(objectName="dim")
+            hp_row = QHBoxLayout()
+            hp_row.setSpacing(4)
+            self.hp_widgets = [QLabel("HP", objectName="dim"), self.hp_edit, self.hpmax,
+                               self.pct_edit, QLabel("%", objectName="dim"), self.hptext]
+            for w in self.hp_widgets:
+                hp_row.addWidget(w)
+            hp_row.addStretch()
+            lay.addLayout(hp_row)
+        else:
+            self.hp_edit = None
+            self.hp_widgets = [self.hptext]
+            lay.addWidget(self.hptext)
 
         self.info = QLabel(objectName="dim")
         self.info.setWordWrap(True)
@@ -146,8 +174,9 @@ class Card(QFrame):
         self.show_mon(None)
 
     def show_mon(self, m: Pokemon | None):
+        self.mon = m
         has = m is not None
-        for w in (self.hpbar, self.hptext, self.info, self.extra, self.moves):
+        for w in (self.hpbar, *self.hp_widgets, self.info, self.extra, self.moves):
             w.setVisible(has)
         for row in self.cells.values():
             for lbl in row:
@@ -169,7 +198,15 @@ class Card(QFrame):
         self.hpbar.setRange(0, mx)
         self.hpbar.setValue(hp)
         self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
-        self.hptext.setText(f"HP {hp} / {mx}" + ("" if m.status == "OK" else f"   ·   {m.status}"))
+        status = "" if m.status == "OK" else f"   ·   {m.status}"
+        if self.hp_edit is not None:
+            self.hp_edit.set_maximum(mx)
+            self.hp_edit.show_value(hp)
+            self.hpmax.setText(f"/ {mx}")
+            self.pct_edit.show_value(hp_percent(hp, mx))
+            self.hptext.setText(status)
+        else:
+            self.hptext.setText(f"HP {hp} / {mx}" + status)
         self.info.setText(f"{m.nature} · {m.ability}")
 
         up, down = nature_effect(m.nature)
@@ -190,6 +227,16 @@ class Card(QFrame):
             if total > EV_TOTAL_MAX else f"{total}/{EV_TOTAL_MAX}"
         self.extra.setText(f"EVs {over}  ·  Hidden Power {hp_type} {hp_pow}")
         self.moves.setText("\n".join(f"{mv:<16}{pp:>3} PP" for mv, pp in m.moves) or "(no moves)")
+
+    def _on_percent(self, pct: int):
+        m = self.mon
+        if m is None:
+            return
+        hp = hp_from_percent(pct, m.max_hp or 1)
+        if hp == m.hp:
+            self.show_mon(m)          # rounds to the HP it already has: show the real percentage
+        else:
+            self.hp_edited.emit(hp)
 
 
 class Row(QFrame):

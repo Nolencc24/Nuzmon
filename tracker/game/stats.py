@@ -3,6 +3,7 @@ Stat math (Gen 3-5 formula) and Pokémon built for the calculator.
 
     with_level(mon, 50)                 the same Pokémon with stats recalculated at level 50
     adjusted(mon, ivs={"Spe": 31})      ... or with some IVs / EVs changed
+    with_hp(mon, 20)                    ... or with 20 current HP
     preview("Garchomp", 40, moves)      a made-up Pokémon (IVs 31, EVs 0, neutral nature)
     from_battler(battler)               a Pokémon built from live battle data (wild Pokémon)
 """
@@ -74,6 +75,37 @@ def adjusted(mon: Pokemon, level: int | None = None, ivs: dict | None = None,
         hp = max(hp, 1)
     return dataclasses.replace(mon, level=level, ivs=new_ivs, evs=new_evs, stats=stats,
                                max_hp=stats["HP"], hp=hp, hidden_power=hidden_power_of(new_ivs))
+
+
+def with_hp(mon: Pokemon, hp: int, of_max: int | None = None) -> Pokemon:
+    """A copy of mon with this much current HP (clamped to 0-max). Returns mon itself if
+    nothing changes.
+
+    of_max: the max HP that hp was picked against. If mon's max HP is different (its level
+    or HP IV/EVs changed since), hp is scaled so it keeps the same percentage.
+    """
+    mx = mon.max_hp
+    if not mx:
+        return mon
+    if of_max and of_max != mx:
+        hp = max(1, round(hp * mx / of_max)) if hp else 0
+    hp = max(0, min(mx, hp))
+    return mon if hp == mon.hp else dataclasses.replace(mon, hp=hp)
+
+
+def hp_percent(hp: int, max_hp: int) -> int:
+    """HP as a whole percentage. Never shows 0% while the Pokémon is still standing, or
+    100% when it has taken damage."""
+    if not hp or not max_hp:
+        return 0
+    return max(1, min(100 if hp >= max_hp else 99, round(100 * hp / max_hp)))
+
+
+def hp_from_percent(pct: int, max_hp: int) -> int:
+    """Current HP for a percentage of max_hp (at least 1 HP unless pct is 0)."""
+    if pct <= 0:
+        return 0
+    return max(1, min(max_hp, round(pct * max_hp / 100)))
 
 
 def with_level(mon: Pokemon, level: int) -> Pokemon:

@@ -40,6 +40,16 @@ def test():
     assert tweaked.hidden_power == hidden_power_of(tweaked.ivs)
     assert stats.adjusted(geo, ivs=dict(geo.ivs)) is geo                  # no change -> same object
 
+    # current HP: clamped, scaled when max HP changes, percentages never hide damage
+    assert stats.with_hp(geo, 30).hp == 30 and stats.with_hp(geo, 999).hp == 40
+    assert stats.with_hp(geo, 20) is geo and geo.hp == 20                 # no change -> same object
+    assert stats.with_hp(geo50, 20, of_max=40).hp == round(20 * geo50.max_hp / 40)
+    assert stats.with_hp(geo50, 1, of_max=40).hp >= 1 and stats.with_hp(geo50, 0, of_max=40).hp == 0
+    assert stats.hp_percent(20, 40) == 50 and stats.hp_percent(1, 400) == 1 and stats.hp_percent(399, 400) == 99
+    assert stats.hp_percent(0, 40) == 0 and stats.hp_percent(40, 40) == 100
+    assert stats.hp_from_percent(50, 40) == 20 and stats.hp_from_percent(1, 40) == 1
+    assert stats.hp_from_percent(0, 40) == 0 and stats.hp_from_percent(100, 40) == 40
+
     # previews: defaults, forms, moves
     p = stats.preview("Rotom-Wash", 30, [("Thunderbolt", 15), ("", 0)])
     assert p.preview and p.species_id == 479 and p.form == 2 and p.level == 30

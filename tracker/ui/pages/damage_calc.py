@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLab
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.game.stats import adjusted, form_name, from_battler, preview
+from tracker.game.stats import adjusted, form_name, from_battler, preview, with_hp
 from tracker.ui.widgets import BoundedIntValidator, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
@@ -165,6 +165,7 @@ class CalcSide(QFrame):
         self.level_override = None    # level typed by hand, or None
         self.iv_override = {}         # IVs edited by hand (in the big card), e.g. {"Spe": 31}
         self.ev_override = {}         # EVs edited by hand
+        self.hp_override = None       # (current HP, max HP it was typed against), or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -186,7 +187,10 @@ class CalcSide(QFrame):
         base = self._base()
         if base is None:
             return None
-        return adjusted(base, self.level_override, self.iv_override, self.ev_override)
+        mon = adjusted(base, self.level_override, self.iv_override, self.ev_override)
+        if self.hp_override is not None:
+            mon = with_hp(mon, *self.hp_override)
+        return mon
 
     def moves(self) -> list:
         """Settings for the 4 move slots (see MoveRow.settings), None for empty slots."""
@@ -207,12 +211,24 @@ class CalcSide(QFrame):
                     row.reset(move)
         self.subject_changed.emit()
 
+    def set_hp(self, hp: int) -> None:
+        """Change current HP (typed in the big card). Pins this side, like any other edit.
+        If the max HP changes later (e.g. a new level), the HP keeps its percentage."""
+        current = self.subject()
+        if current is None or current.hp == hp:
+            return
+        self._pin()
+        self.hp_override = (hp, current.max_hp)
+        self._sync()
+        self.subject_changed.emit()
+
     def reset(self) -> None:
         """Forget everything picked by hand and follow the live Pokémon again."""
         self.pinned = False
         self.pin_pid = self.pin_snapshot = self.pin_species = None
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
+        self.hp_override = None
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
         self.subject_changed.emit()
@@ -260,7 +276,8 @@ class CalcSide(QFrame):
     def _on_species(self, name: str):
         previous = self.subject()
         self._pin()
-        self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs
+        self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP
+        self.hp_override = None
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
             self.pin_pid, self.pin_snapshot, self.pin_species = real.pid, real, None

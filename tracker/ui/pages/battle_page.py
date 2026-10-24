@@ -89,6 +89,9 @@ class BattlePage(QWidget):
         # IV/EV edits in a big card change that side of the calculator
         self.party.lead.stat_edited.connect(self.info.you.set_stat)
         self.enemy.lead.stat_edited.connect(self.info.foe.set_stat)
+        # HP edits too (typed as a number or a percentage)
+        self.party.lead.hp_edited.connect(self.info.you.set_hp)
+        self.enemy.lead.hp_edited.connect(self.info.foe.set_hp)
 
     def update_data(self, data: dict) -> None:
         """Called by the main window whenever new game data arrives."""
