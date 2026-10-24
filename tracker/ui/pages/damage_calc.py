@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLab
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.game.stats import adjusted, form_name, from_battler, preview, with_hp
+from tracker.game.stats import adjusted, form_name, from_battler, preview, status_kind, with_hp, with_status
 from tracker.ui.widgets import BoundedIntValidator, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
@@ -168,6 +168,7 @@ class CalcSide(QFrame):
         self.ev_override = {}         # EVs edited by hand
         self.hp_override = None       # (current HP, max HP it was typed against), or None
         self.nature_override = None   # nature picked by hand (in the big card), or None
+        self.status_override = None   # status picked by hand (one of stats.STATUSES), or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -198,6 +199,8 @@ class CalcSide(QFrame):
         mon = adjusted(base, self.level_override, self.iv_override, self.ev_override, self.nature_override)
         if self.hp_override is not None:
             mon = with_hp(mon, *self.hp_override)
+        if self.status_override is not None:
+            mon = with_status(mon, self.status_override)
         return mon
 
     def moves(self) -> list:
@@ -240,6 +243,17 @@ class CalcSide(QFrame):
         self._sync()
         self.subject_changed.emit()
 
+    def set_status(self, status: str) -> None:
+        """Change the status condition (picked in the big card). Pins this side, like any
+        other edit. The damage calculator will use it later (burn, poison damage...)."""
+        current = self.subject()
+        if current is None or status_kind(current.status) == status:
+            return
+        self._pin()
+        self.status_override = status
+        self._sync()
+        self.subject_changed.emit()
+
     def select(self, mon) -> None:
         """Calculate with this team member (clicked in the Battle tab), with its own level,
         IVs, EVs, HP and nature. Pins this side, like any other edit."""
@@ -249,7 +263,7 @@ class CalcSide(QFrame):
         self._pin_to(mon)
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
-        self.hp_override = self.nature_override = None
+        self.hp_override = self.nature_override = self.status_override = None
         self._sync()
         self.subject_changed.emit()
 
@@ -259,7 +273,7 @@ class CalcSide(QFrame):
         self.pin_pid = self.pin_slot = self.pin_snapshot = self.pin_species = None
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
-        self.hp_override = self.nature_override = None
+        self.hp_override = self.nature_override = self.status_override = None
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
         self.subject_changed.emit()
@@ -316,7 +330,7 @@ class CalcSide(QFrame):
         previous = self.subject()
         self._pin()
         self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP/nature
-        self.hp_override = self.nature_override = None
+        self.hp_override = self.nature_override = self.status_override = None
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
             self._pin_to(real)

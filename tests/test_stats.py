@@ -47,6 +47,13 @@ def test():
     assert adamant.stats["HP"] == stats.calc_stats(base, geo.ivs, geo.evs, 14, "Relaxed")["HP"]
     assert stats.adjusted(geo, nature=geo.nature) is geo
 
+    # status conditions
+    assert stats.status_kind("Asleep (2)") == "Asleep" and stats.status_kind(None) == "OK"
+    assert stats.status_kind("Toxic") == "Toxic" and stats.status_kind("???") == "OK"
+    paralyzed = stats.with_status(geo, "Paralyzed")
+    assert paralyzed.status == "Paralyzed" and geo.status == "Burned" and paralyzed.stats == geo.stats
+    assert stats.with_status(geo, geo.status) is geo
+
     # current HP: clamped, scaled when max HP changes, percentages never hide damage
     assert stats.with_hp(geo, 30).hp == 30 and stats.with_hp(geo, 999).hp == 40
     assert stats.with_hp(geo, 20) is geo and geo.hp == 20                 # no change -> same object

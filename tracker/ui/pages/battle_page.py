@@ -102,6 +102,9 @@ class BattlePage(QWidget):
         # and nature changes
         self.party.lead.nature_edited.connect(self.info.you.set_nature)
         self.enemy.lead.nature_edited.connect(self.info.foe.set_nature)
+        # and status conditions
+        self.party.lead.status_edited.connect(self.info.you.set_status)
+        self.enemy.lead.status_edited.connect(self.info.foe.set_status)
         # clicking a thin row makes that Pokémon the big card (and the calculator's subject)
         self.party.row_clicked.connect(self.info.you.select)
         self.enemy.row_clicked.connect(self.info.foe.select)

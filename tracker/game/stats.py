@@ -4,6 +4,7 @@ Stat math (Gen 3-5 formula) and Pokémon built for the calculator.
     with_level(mon, 50)                 the same Pokémon with stats recalculated at level 50
     adjusted(mon, ivs={"Spe": 31})      ... or with some IVs / EVs (or the nature) changed
     with_hp(mon, 20)                    ... or with 20 current HP
+    with_status(mon, "Burned")          ... or with a status condition
     preview("Garchomp", 40, moves)      a made-up Pokémon (IVs 31, EVs 0, neutral nature)
     from_battler(battler)               a Pokémon built from live battle data (wild Pokémon)
 """
@@ -77,6 +78,24 @@ def adjusted(mon: Pokemon, level: int | None = None, ivs: dict | None = None,
         hp = max(hp, 1)
     return dataclasses.replace(mon, level=level, nature=nature, ivs=new_ivs, evs=new_evs, stats=stats,
                                max_hp=stats["HP"], hp=hp, hidden_power=hidden_power_of(new_ivs))
+
+
+# Major statuses, spelled like Pokemon.status ("OK" = healthy; sleep can also be "Asleep (2)",
+# with the turns left). For the damage calculator later: a burn halves the attacker's Atk
+# for physical moves, and at the end of each turn Poisoned and Burned lose 1/8 of max HP,
+# Toxic n/16 on its nth turn. Both change how many hits it takes to KO.
+STATUSES = ["OK", "Poisoned", "Toxic", "Burned", "Paralyzed", "Asleep", "Frozen"]
+
+
+def status_kind(status: str | None) -> str:
+    """The status without extras, one of STATUSES: "Asleep (2)" -> "Asleep", None -> "OK"."""
+    s = (status or "OK").split(" (")[0]
+    return s if s in STATUSES else "OK"
+
+
+def with_status(mon: Pokemon, status: str) -> Pokemon:
+    """A copy of mon with another status (one of STATUSES). Returns mon itself if unchanged."""
+    return mon if status == mon.status else dataclasses.replace(mon, status=status)
 
 
 def with_hp(mon: Pokemon, hp: int, of_max: int | None = None) -> Pokemon:

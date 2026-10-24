@@ -9,7 +9,8 @@ from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBox
 
 from tracker.game import gamedata
 from tracker.game.decoder import Pokemon
-from tracker.game.stats import EV_MAX, EV_TOTAL_MAX, IV_MAX, hp_from_percent, hp_percent, nature_effect
+from tracker.game.stats import (EV_MAX, EV_TOTAL_MAX, IV_MAX, hp_from_percent, hp_percent, nature_effect,
+                                status_kind)
 
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
 
@@ -75,13 +76,15 @@ class Card(QFrame):
     one tall column, which is how the lead Pokémon is shown.
     editable=True makes the IVs (0-31) and EVs (0-252) editable; changes are reported
     with stat_edited("iv" or "ev", stat name, value). It also makes current HP editable,
-    as a number or as a percentage; both are reported as hp_edited(new HP). And the nature
-    becomes a searchable picker, reported as nature_edited(nature name).
+    as a number or as a percentage; both are reported as hp_edited(new HP). The nature and
+    status become searchable pickers, reported as nature_edited(nature name) and
+    status_edited(status, one of stats.STATUSES).
     """
 
     stat_edited = Signal(str, str, int)
     hp_edited = Signal(int)
     nature_edited = Signal(str)
+    status_edited = Signal(str)
 
     def __init__(self, wide: bool = False, editable: bool = False):
         super().__init__()
@@ -106,23 +109,26 @@ class Card(QFrame):
         self.hptext = QLabel(objectName="dim")
         lay.addWidget(self.hpbar)
         if editable:
-            # HP [ 23 ] / 40   [ 58 ] %   · status
+            # HP [ 23 ] / 40   [ 58 ] %   [ status ]
             self.hp_edit, self.pct_edit = StatEdit(999), StatEdit(100)
             self.hp_edit.setToolTip("Current HP")
             self.pct_edit.setToolTip("Current HP as a percentage of max HP")
             self.hp_edit.committed.connect(self.hp_edited.emit)
             self.pct_edit.committed.connect(self._on_percent)
             self.hpmax = QLabel(objectName="dim")
+            self.status = StatusPicker()
+            self.status.setToolTip("Status condition. Search by name or short form, e.g. psn, tox, par")
+            self.status.value_changed.connect(lambda _label: self.status_edited.emit(self.status.status()))
             hp_row = QHBoxLayout()
             hp_row.setSpacing(4)
             self.hp_widgets = [QLabel("HP", objectName="dim"), self.hp_edit, self.hpmax,
-                               self.pct_edit, QLabel("%", objectName="dim"), self.hptext]
+                               self.pct_edit, QLabel("%", objectName="dim"), QLabel("  "), self.status]
             for w in self.hp_widgets:
                 hp_row.addWidget(w)
             hp_row.addStretch()
             lay.addLayout(hp_row)
         else:
-            self.hp_edit = None
+            self.hp_edit = self.status = None
             self.hp_widgets = [self.hptext]
             lay.addWidget(self.hptext)
 
@@ -218,7 +224,9 @@ class Card(QFrame):
             self.hp_edit.show_value(hp)
             self.hpmax.setText(f"/ {mx}")
             self.pct_edit.show_value(hp_percent(hp, mx))
-            self.hptext.setText(status)
+            if not self.status.lineEdit().isModified():    # don't clobber a search in progress
+                self.status.set_status(m.status, emit=False)
+            self.status.setToolTip(f"Status condition: {m.status}. Search by name or short form, e.g. psn, tox, par")
         else:
             self.hptext.setText(f"HP {hp} / {mx}" + status)
         if self.nature is not None:
@@ -429,3 +437,31 @@ class NaturePicker(SearchPicker):
     def nature(self) -> str:
         """The selected nature's plain name, e.g. "Adamant"."""
         return self._current.split(" (")[0]
+
+
+# how each of stats.STATUSES is shown (and searched) in the status picker
+STATUS_LABELS = {
+    "OK": "Healthy",
+    "Poisoned": "Poisoned (PSN)",
+    "Toxic": "Badly Poisoned (TOX, Toxic)",
+    "Burned": "Burned (BRN)",
+    "Paralyzed": "Paralyzed (PAR)",
+    "Asleep": "Asleep (SLP)",
+    "Frozen": "Frozen (FRZ)",
+}
+
+
+class StatusPicker(SearchPicker):
+    """Searchable selector over the status conditions: type the name or the short form
+    ("psn", "tox", "par"...)."""
+
+    def __init__(self):
+        super().__init__(list(STATUS_LABELS.values()), "Search status…", allow_empty=False)
+        self._by_label = {label: status for status, label in STATUS_LABELS.items()}
+
+    def set_status(self, status: str | None, emit: bool = True):
+        self.set_value(STATUS_LABELS[status_kind(status)], emit)
+
+    def status(self) -> str:
+        """The selected status, one of stats.STATUSES ("OK" = healthy)."""
+        return self._by_label.get(self._current, "OK")
