@@ -40,6 +40,13 @@ def test():
     assert tweaked.hidden_power == hidden_power_of(tweaked.ivs)
     assert stats.adjusted(geo, ivs=dict(geo.ivs)) is geo                  # no change -> same object
 
+    # changing the nature recalculates stats (HP is never affected)
+    adamant = stats.adjusted(geo, nature="Adamant")
+    assert adamant.nature == "Adamant" and geo.nature == "Relaxed"
+    assert adamant.stats == stats.calc_stats(base, geo.ivs, geo.evs, 14, "Adamant")
+    assert adamant.stats["HP"] == stats.calc_stats(base, geo.ivs, geo.evs, 14, "Relaxed")["HP"]
+    assert stats.adjusted(geo, nature=geo.nature) is geo
+
     # current HP: clamped, scaled when max HP changes, percentages never hide damage
     assert stats.with_hp(geo, 30).hp == 30 and stats.with_hp(geo, 999).hp == 40
     assert stats.with_hp(geo, 20) is geo and geo.hp == 20                 # no change -> same object

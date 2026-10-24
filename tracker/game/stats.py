@@ -2,7 +2,7 @@
 Stat math (Gen 3-5 formula) and Pokémon built for the calculator.
 
     with_level(mon, 50)                 the same Pokémon with stats recalculated at level 50
-    adjusted(mon, ivs={"Spe": 31})      ... or with some IVs / EVs changed
+    adjusted(mon, ivs={"Spe": 31})      ... or with some IVs / EVs (or the nature) changed
     with_hp(mon, 20)                    ... or with 20 current HP
     preview("Garchomp", 40, moves)      a made-up Pokémon (IVs 31, EVs 0, neutral nature)
     from_battler(battler)               a Pokémon built from live battle data (wild Pokémon)
@@ -54,26 +54,28 @@ IV_MAX, EV_MAX, EV_TOTAL_MAX = 31, 252, 510
 
 
 def adjusted(mon: Pokemon, level: int | None = None, ivs: dict | None = None,
-             evs: dict | None = None) -> Pokemon:
-    """A copy of mon with a different level and/or some IVs/EVs changed, stats (and Hidden
-    Power) recalculated. HP keeps the same percentage. Returns mon itself if nothing changes.
+             evs: dict | None = None, nature: str | None = None) -> Pokemon:
+    """A copy of mon with a different level, nature and/or some IVs/EVs changed, stats (and
+    Hidden Power) recalculated. HP keeps the same percentage. Returns mon itself if nothing
+    changes.
 
     ivs/evs only need the stats that change, e.g. adjusted(mon, ivs={"Spe": 31}).
     """
     level = max(1, min(100, level or mon.level or 1))
+    nature = nature or mon.nature
     new_ivs = {**mon.ivs, **{k: max(0, min(IV_MAX, v)) for k, v in (ivs or {}).items()}}
     new_evs = {**mon.evs, **{k: max(0, min(EV_MAX, v)) for k, v in (evs or {}).items()}}
-    if level == mon.level and new_ivs == mon.ivs and new_evs == mon.evs:
+    if level == mon.level and nature == mon.nature and new_ivs == mon.ivs and new_evs == mon.evs:
         return mon
     base = base_stats_of(mon)
     if base is None:
         return mon
-    stats = calc_stats(base, new_ivs, new_evs, level, mon.nature, mon.species_id)
+    stats = calc_stats(base, new_ivs, new_evs, level, nature, mon.species_id)
     old_max = mon.max_hp or stats["HP"]
     hp = stats["HP"] if mon.hp is None else round((mon.hp or 0) * stats["HP"] / old_max)
     if mon.hp:                       # don't let a scaled-down Pokémon look fainted
         hp = max(hp, 1)
-    return dataclasses.replace(mon, level=level, ivs=new_ivs, evs=new_evs, stats=stats,
+    return dataclasses.replace(mon, level=level, nature=nature, ivs=new_ivs, evs=new_evs, stats=stats,
                                max_hp=stats["HP"], hp=hp, hidden_power=hidden_power_of(new_ivs))
 
 

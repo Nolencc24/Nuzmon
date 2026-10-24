@@ -75,11 +75,13 @@ class Card(QFrame):
     one tall column, which is how the lead Pokémon is shown.
     editable=True makes the IVs (0-31) and EVs (0-252) editable; changes are reported
     with stat_edited("iv" or "ev", stat name, value). It also makes current HP editable,
-    as a number or as a percentage; both are reported as hp_edited(new HP).
+    as a number or as a percentage; both are reported as hp_edited(new HP). And the nature
+    becomes a searchable picker, reported as nature_edited(nature name).
     """
 
     stat_edited = Signal(str, str, int)
     hp_edited = Signal(int)
+    nature_edited = Signal(str)
 
     def __init__(self, wide: bool = False, editable: bool = False):
         super().__init__()
@@ -124,9 +126,21 @@ class Card(QFrame):
             self.hp_widgets = [self.hptext]
             lay.addWidget(self.hptext)
 
-        self.info = QLabel(objectName="dim")
+        self.info = QLabel(objectName="dim")     # "Nature · Ability" (just the ability if editable)
         self.info.setWordWrap(True)
-        lay.addWidget(self.info)
+        if editable:
+            self.nature = NaturePicker()
+            self.nature.setToolTip("Nature (stats update with it). Search by name, or by stat, e.g. +Atk or -SpA")
+            self.nature.value_changed.connect(lambda _label: self.nature_edited.emit(self.nature.nature()))
+            info_row = QHBoxLayout()
+            info_row.setSpacing(6)
+            info_row.addWidget(self.nature)
+            info_row.addWidget(self.info, 1)
+            lay.addLayout(info_row)
+            self.hp_widgets.append(self.nature)   # shown/hidden along with the HP row
+        else:
+            self.nature = None
+            lay.addWidget(self.info)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -207,7 +221,12 @@ class Card(QFrame):
             self.hptext.setText(status)
         else:
             self.hptext.setText(f"HP {hp} / {mx}" + status)
-        self.info.setText(f"{m.nature} · {m.ability}")
+        if self.nature is not None:
+            if not self.nature.lineEdit().isModified():   # don't clobber a search in progress
+                self.nature.set_nature(m.nature, emit=False)
+            self.info.setText(f"· {m.ability}")
+        else:
+            self.info.setText(f"{m.nature} · {m.ability}")
 
         up, down = nature_effect(m.nature)
         for stat in DISPLAY_ORDER:
@@ -373,3 +392,27 @@ class SpeciesPicker(SearchPicker):
 
     def __init__(self):
         super().__init__(gamedata.all_species_names(), "Search Pokémon…", allow_empty=False)
+
+
+def nature_label(nature: str) -> str:
+    """"Adamant (+Atk, -SpA)", or just "Hardy" for natures that change nothing."""
+    up, down = nature_effect(nature)
+    return nature if up is None else f"{nature} (+{up}, -{down})"
+
+
+class NaturePicker(SearchPicker):
+    """Searchable selector over the 25 natures, shown as "Adamant (+Atk, -SpA)".
+
+    Search by name ("adam") or by what the nature changes: "+Atk" lists the natures that
+    raise Attack, "-SpA" the ones that lower Sp. Atk, "+Atk, -SpA" finds Adamant.
+    """
+
+    def __init__(self):
+        super().__init__([nature_label(n) for n in gamedata.NATURES], "Search natures…", allow_empty=False)
+
+    def set_nature(self, nature: str, emit: bool = True):
+        self.set_value(nature_label(nature), emit)
+
+    def nature(self) -> str:
+        """The selected nature's plain name, e.g. "Adamant"."""
+        return self._current.split(" (")[0]

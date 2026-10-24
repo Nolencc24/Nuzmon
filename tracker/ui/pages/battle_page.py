@@ -92,6 +92,9 @@ class BattlePage(QWidget):
         # HP edits too (typed as a number or a percentage)
         self.party.lead.hp_edited.connect(self.info.you.set_hp)
         self.enemy.lead.hp_edited.connect(self.info.foe.set_hp)
+        # and nature changes
+        self.party.lead.nature_edited.connect(self.info.you.set_nature)
+        self.enemy.lead.nature_edited.connect(self.info.foe.set_nature)
 
     def update_data(self, data: dict) -> None:
         """Called by the main window whenever new game data arrives."""

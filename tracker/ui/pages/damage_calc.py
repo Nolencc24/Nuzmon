@@ -166,6 +166,7 @@ class CalcSide(QFrame):
         self.iv_override = {}         # IVs edited by hand (in the big card), e.g. {"Spe": 31}
         self.ev_override = {}         # EVs edited by hand
         self.hp_override = None       # (current HP, max HP it was typed against), or None
+        self.nature_override = None   # nature picked by hand (in the big card), or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -187,7 +188,7 @@ class CalcSide(QFrame):
         base = self._base()
         if base is None:
             return None
-        mon = adjusted(base, self.level_override, self.iv_override, self.ev_override)
+        mon = adjusted(base, self.level_override, self.iv_override, self.ev_override, self.nature_override)
         if self.hp_override is not None:
             mon = with_hp(mon, *self.hp_override)
         return mon
@@ -222,13 +223,23 @@ class CalcSide(QFrame):
         self._sync()
         self.subject_changed.emit()
 
+    def set_nature(self, nature: str) -> None:
+        """Change the nature (picked in the big card). Pins this side, like any other edit."""
+        current = self.subject()
+        if current is None or current.nature == nature:
+            return
+        self._pin()
+        self.nature_override = nature
+        self._sync()
+        self.subject_changed.emit()
+
     def reset(self) -> None:
         """Forget everything picked by hand and follow the live Pokémon again."""
         self.pinned = False
         self.pin_pid = self.pin_snapshot = self.pin_species = None
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
-        self.hp_override = None
+        self.hp_override = self.nature_override = None
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
         self.subject_changed.emit()
@@ -276,8 +287,8 @@ class CalcSide(QFrame):
     def _on_species(self, name: str):
         previous = self.subject()
         self._pin()
-        self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP
-        self.hp_override = None
+        self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP/nature
+        self.hp_override = self.nature_override = None
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
             self.pin_pid, self.pin_snapshot, self.pin_species = real.pid, real, None
