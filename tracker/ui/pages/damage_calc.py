@@ -160,6 +160,7 @@ class CalcSide(QFrame):
         self.team = []                # this side's party, for matching picked species
         self.pinned = False           # True once you change something; Reset clears it
         self.pin_pid = None           # pinned real Pokémon (its PID), or None for a preview
+        self.pin_slot = None          # ...and its index in self.team (twins share a PID)
         self.pin_snapshot = None      # last seen copy of it (used if it's not in the team list)
         self.pin_species = None       # pinned preview species, when pin_pid is None
         self.level_override = None    # level typed by hand, or None
@@ -178,9 +179,15 @@ class CalcSide(QFrame):
 
     def set_live(self, live, team) -> None:
         """Called on every update with the live Pokémon (or None) and this side's team."""
-        self.team = [m for m in team if m is not None]
+        self.team = list(team)
         self.live = live
         self._sync()
+
+    def slot(self) -> int | None:
+        """Index in this side's team of the Pokémon subject() is based on, or None (a
+        preview or a wild Pokémon). Needed because twins share a PID (see game/battle.py)."""
+        base = self._base()
+        return next((i for i, m in enumerate(self.team) if m is not None and m is base), None)
 
     def subject(self):
         """The Pokémon this side calculates with (live, pinned, or a preview), at the chosen
@@ -233,10 +240,23 @@ class CalcSide(QFrame):
         self._sync()
         self.subject_changed.emit()
 
+    def select(self, mon) -> None:
+        """Calculate with this team member (clicked in the Battle tab), with its own level,
+        IVs, EVs, HP and nature. Pins this side, like any other edit."""
+        if mon is None or mon.preview:
+            return
+        self._pin()
+        self._pin_to(mon)
+        self.level_override = None
+        self.iv_override, self.ev_override = {}, {}
+        self.hp_override = self.nature_override = None
+        self._sync()
+        self.subject_changed.emit()
+
     def reset(self) -> None:
         """Forget everything picked by hand and follow the live Pokémon again."""
         self.pinned = False
-        self.pin_pid = self.pin_snapshot = self.pin_species = None
+        self.pin_pid = self.pin_slot = self.pin_snapshot = self.pin_species = None
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
         self.hp_override = self.nature_override = None
@@ -250,16 +270,24 @@ class CalcSide(QFrame):
         if not self.pinned:
             return self.live
         if self.pin_pid is not None:
-            current = next((m for m in self.team + [self.live] if m is not None and m.pid == self.pin_pid), None)
+            # same party slot if it still holds this PID (twins share one), else by PID
+            current = self.team[self.pin_slot] if self.pin_slot is not None and self.pin_slot < len(self.team) else None
+            if current is None or current.pid != self.pin_pid:
+                current = next((m for m in self.team + [self.live] if m is not None and m.pid == self.pin_pid), None)
             if current is not None:
                 self.pin_snapshot = current          # fresh data (live HP) when available
             return self.pin_snapshot
         level = self.level_override or 50
         return preview(self.pin_species, level, self._picked_moves())
 
+    def _pin_to(self, mon):
+        """Pin this real Pokémon (an object from self.team, or the live one)."""
+        self.pin_pid, self.pin_snapshot, self.pin_species = mon.pid, mon, None
+        self.pin_slot = next((i for i, m in enumerate(self.team) if m is mon), None)
+
     def _identity(self):
         if self.pinned:
-            return ("pinned", self.pin_pid, self.pin_species)
+            return ("pinned", self.pin_pid, self.pin_slot, self.pin_species)
         if self.live is None:
             return None
         return (self.live.pid, tuple(name for name, _pp in self.live.moves))
@@ -268,10 +296,10 @@ class CalcSide(QFrame):
         """Stop following the game, keeping whatever is shown now."""
         if self.pinned:
             return
-        current = self.subject()
+        base = self._base()               # read before pinning: it's the live one
         self.pinned = True
-        if current is not None and not current.preview:
-            self.pin_pid, self.pin_snapshot = current.pid, self._base()
+        if base is not None and not base.preview:
+            self._pin_to(base)
         self._filled = self._identity()   # keep the moves that are in the rows now
 
     def _picked_moves(self) -> list:
@@ -291,10 +319,11 @@ class CalcSide(QFrame):
         self.hp_override = self.nature_override = None
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
-            self.pin_pid, self.pin_snapshot, self.pin_species = real.pid, real, None
+            self._pin_to(real)
             self.level_override = None
         else:                                      # anything else: a preview
-            self.pin_pid, self.pin_snapshot, self.pin_species = None, None, name
+            self.pin_pid = self.pin_slot = self.pin_snapshot = None
+            self.pin_species = name
             self.level_override = self.level_override or (previous.level if previous and previous.level else 50)
         self._sync()
         self.subject_changed.emit()
@@ -363,8 +392,10 @@ class InfoPanel(QFrame):
         party, enemy = data["party"], data["enemy"]
         battle = data.get("battle")
         if battle:
-            you = _by_pid(party, battle["you"].pid) or from_battler(battle["you"])
-            foe = _by_pid(enemy, battle["foe"].pid)
+            # by party index, not PID: a trainer's identical Pokémon share one PID
+            pa, ea = data.get("party_active"), data.get("enemy_active")
+            you = party[pa] if pa is not None else from_battler(battle["you"])
+            foe = enemy[ea] if ea is not None else None
             foe_team = enemy
             if foe is None:              # not in the opponent's party: a wild Pokémon
                 foe, foe_team = from_battler(battle["foe"]), []
@@ -374,10 +405,6 @@ class InfoPanel(QFrame):
             foe_team = enemy
         self.you.set_live(you, party)
         self.foe.set_live(foe, foe_team)
-
-
-def _by_pid(mons, pid):
-    return next((m for m in mons if m is not None and m.pid == pid), None)
 
 
 def _pick(mons, active):

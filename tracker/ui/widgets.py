@@ -259,11 +259,15 @@ class Card(QFrame):
 
 
 class Row(QFrame):
-    """A thin one-line summary for party slots 2-6: name, level, HP bar, status."""
+    """A thin one-line summary for party slots 2-6: name, level, HP bar, status.
+    Clicking it emits clicked(Pokémon shown)."""
+
+    clicked = Signal(object)
 
     def __init__(self):
         super().__init__()
         self.setObjectName("row")
+        self.mon = None
         self.setFixedHeight(34)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 4, 10, 4)
@@ -287,7 +291,11 @@ class Row(QFrame):
         self.show_mon(None)
 
     def show_mon(self, m: Pokemon | None):
+        self.mon = m
         has = m is not None
+        clickable = has and not m.is_egg
+        self.setCursor(Qt.PointingHandCursor if clickable else Qt.ArrowCursor)
+        self.setToolTip("Click to show this Pokémon in the big card and the calculator" if clickable else "")
         for w in (self.hpbar, self.hptext, self.status):
             w.setVisible(has)
         if not has:
@@ -304,6 +312,11 @@ class Row(QFrame):
         self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
         self.hptext.setText(f"{hp}/{mx}")
         self.status.setText("" if m.status == "OK" else m.status)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.mon is not None and not self.mon.is_egg:
+            self.clicked.emit(self.mon)
+        super().mousePressEvent(event)
 
 
 class SearchPicker(QComboBox):

@@ -71,8 +71,8 @@ class MemorySource:
         p0 = snap["base"] + PARTY_OFFSET - DS_RAM_START
         e0 = snap["base"] + ENEMY_OFFSET - DS_RAM_START
         skip = {o + i * PARTY_SIZE for o in (p0, e0) for i in range(6)}
-        self.battle.apply(snap["ram"], party + enemy, skip)
         state = self.state.update(snap["ram"], party, enemy, self.battle)
+        self.battle.apply(snap["ram"], [party, enemy], (state["party_active"], state["enemy_active"]), skip)
         battle = state["battle"]
 
         # only redraw when something visible changed

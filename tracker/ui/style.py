@@ -15,6 +15,7 @@ QTabBar::tab:hover { background: #2c3039; }
 QTabBar::tab:selected { background: #3a6ff7; color: white; }
 QFrame#card { background: #1f2229; border: 1px solid #2c3039; border-radius: 8px; }
 QFrame#row  { background: #1f2229; border: 1px solid #2c3039; border-radius: 6px; }
+QFrame#row:hover { border-color: #3a6ff7; }
 QFrame#infopanel { background: #1a1d23; border: 1px dashed #343946; border-radius: 8px; }
 QLabel#section { font-size: 13px; font-weight: 600; color: #9aa3b5; letter-spacing: 1px; }
 QLabel#rowname { font-weight: 600; }

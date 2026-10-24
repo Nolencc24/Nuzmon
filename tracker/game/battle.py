@@ -6,6 +6,10 @@ Layouts come from the pret/pokeheartgold decompilation:
   * battleMons[4]: [you, foe, your partner, foe's partner] (partners only in doubles)
   * a battle-only copy of each party, where a switched-out Pokémon's HP is saved
 The real party is only updated when the battle ends.
+
+Pokémon are matched by PID, but a trainer's Pokémon of the same species and level share
+one PID (the game derives it from trainer, species and level), e.g. a trainer with three
+level 7 Bellsprout. Those "twins" are told apart by their party slot instead.
 """
 
 from __future__ import annotations
@@ -136,41 +140,63 @@ class BattleHP:
             i = ram.find(key, i + 1)
         return found
 
-    def apply(self, ram: bytes, mons, skip=()) -> None:
-        """skip: RAM offsets of the real party/enemy entries (already read as "party")."""
-        now = time.monotonic()
-        for mon in mons:
-            if mon is None or mon.hp is None:
+    @staticmethod
+    def _lines_up(ram: bytes, off: int, team, i: int) -> bool:
+        """True if the entry at off sits where slot i would be in a copy of the whole team
+        (every other team member's PID is where it should be). Tells twins' copies apart."""
+        for k, m in enumerate(team):
+            if m is None or k == i:
                 continue
-            rec = self.seen.setdefault(mon.pid, {})
-            values = {"party": (mon.hp, mon.max_hp, mon.status)}
-            for off in self.find_all(ram, mon):
-                hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
-                status = _status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF)
-                values[("battler", off)] = (hp, max_hp, status)
-            for off in self.find_party_copies(ram, mon, skip):
-                copy = parse(ram[off:off + PARTY_SIZE])
-                values[("copy", off)] = (copy.hp, copy.max_hp, copy.status)
+            pos = off + (k - i) * PARTY_SIZE
+            if pos < 0 or pos + 4 > len(ram) or struct.unpack_from("<I", ram, pos)[0] != m.pid:
+                return False
+        return True
 
-            for key, val in values.items():
-                if key not in rec:
-                    # Anything already in memory when the tracker starts counts as "old"
-                    # (party slightly newer than battle copies), so a leftover copy from an
-                    # earlier battle can't win. Copies that appear later are new.
-                    if self.first_poll:
-                        rec[key] = (val, -1.0 if key == "party" else -2.0)
-                    else:
-                        rec[key] = (val, now if key != "party" else now - 1e-6)
-                elif rec[key][0] != val:
-                    rec[key] = (val, now)
-            for key in [k for k in rec if k not in values]:
-                del rec[key]   # that copy is gone or was overwritten
+    def apply(self, ram: bytes, teams, active=(None, None), skip=()) -> None:
+        """teams: [party, enemy]. active: index of the Pokémon each side has out, or None
+        (from BattleState.update). skip: RAM offsets of the real party/enemy entries
+        (already read as "party")."""
+        now = time.monotonic()
+        for t, team in enumerate(teams):
+            pids = [m.pid for m in team if m is not None]
+            for i, mon in enumerate(team):
+                if mon is None or mon.hp is None:
+                    continue
+                twin = pids.count(mon.pid) > 1
+                rec = self.seen.setdefault((mon.pid, t, i) if twin else mon.pid, {})
+                values = {"party": (mon.hp, mon.max_hp, mon.status)}
+                if not twin or i == active[t]:      # the battler is only the twin that's out
+                    for off in self.find_all(ram, mon):
+                        hp, max_hp = struct.unpack_from("<iI", ram, off + BM_HP)
+                        status = _status_text(struct.unpack_from("<I", ram, off + BM_STATUS)[0] & 0xFF)
+                        values[("battler", off)] = (hp, max_hp, status)
+                for off in self.find_party_copies(ram, mon, skip):
+                    if twin and not self._lines_up(ram, off, team, i):
+                        continue                    # another twin's copy
+                    copy = parse(ram[off:off + PARTY_SIZE])
+                    values[("copy", off)] = (copy.hp, copy.max_hp, copy.status)
 
-            newest = max(rec, key=lambda k: rec[k][1])
-            if newest != "party":
-                mon.hp, mon.max_hp, mon.status = rec[newest][0]
-                mon.stats["HP"] = mon.max_hp
-                mon.in_battle = True
+                for key, val in values.items():
+                    if key not in rec:
+                        # Anything already in memory when the tracker starts counts as "old"
+                        # (party slightly newer than battle copies), so a leftover copy from an
+                        # earlier battle can't win. Copies that appear later are new.
+                        if self.first_poll:
+                            rec[key] = (val, -1.0 if key == "party" else -2.0)
+                        else:
+                            rec[key] = (val, now if key != "party" else now - 1e-6)
+                    elif rec[key][0] != val:
+                        rec[key] = (val, now)
+                for key in [k for k in rec if k not in values]:
+                    if twin and key[0] == "battler" and i != active[t]:
+                        continue   # a twin that went back in (or fainted) keeps its last battle HP
+                    del rec[key]   # that copy is gone or was overwritten
+
+                newest = max(rec, key=lambda k: rec[k][1])
+                if newest != "party":
+                    mon.hp, mon.max_hp, mon.status = rec[newest][0]
+                    mon.stats["HP"] = mon.max_hp
+                    mon.in_battle = True
         self.first_poll = False
 
 
@@ -189,6 +215,26 @@ class BattleState:
         self.first_poll = True
         self.battle_id = 0       # goes up by one each time a new battle starts
         self._live_base = None   # array of the battle in progress, None outside battle
+        self._out = [None, None]           # [your, foe's] party index that was out last poll
+        self._fainted = [set(), set()]     # party indexes seen fainting this battle, per side
+
+    def _active(self, side: int, team, b: Battler) -> int | None:
+        """Index in team of battler b. Found by PID, except for twins (same PID): then the
+        twin that was out stays out until it faints, and after that it's the first twin
+        that hasn't fainted (trainers send out their Pokémon in party order)."""
+        twins = [i for i, m in enumerate(team) if m is not None and m.pid == b.pid]
+        fainted, out = self._fainted[side], self._out[side]
+        if len(twins) <= 1:
+            slot = twins[0] if twins else None
+        elif out in twins and (out not in fainted or b.hp == 0):
+            slot = out                    # still out (or still lying there fainted)
+        else:
+            fresh = [i for i in twins if i not in fainted and team[i].hp != 0]
+            slot = (fresh or [i for i in twins if i not in fainted] or twins)[0]
+        if slot is not None and b.hp == 0:
+            fainted.add(slot)
+        self._out[side] = slot
+        return slot
 
     @staticmethod
     def _valid(ram: bytes, off: int) -> bool:
@@ -204,7 +250,9 @@ class BattleState:
 
     def update(self, ram: bytes, party, enemy, finder: BattleHP) -> dict:
         """Returns {"party_active": index or None, "enemy_active": index or None,
-        "battle": None outside battle, else {"id", "you": Battler, "foe": Battler}}."""
+        "battle": None outside battle, else {"id", "you": Battler, "foe": Battler}}.
+
+        Call it before finder.apply(): it needs the party HP as stored, not the battle HP."""
         now = time.monotonic()
 
         for mon in party:
@@ -254,6 +302,6 @@ class BattleState:
         if self._live_base is None or self._live_base != base:
             self.battle_id += 1          # a new battle started
             self._live_base = base
-        index = lambda mons, pid: next((i for i, m in enumerate(mons) if m and m.pid == pid), None)
-        return {"party_active": index(party, you.pid), "enemy_active": index(enemy, foe.pid),
+            self._out, self._fainted = [None, None], [set(), set()]
+        return {"party_active": self._active(0, party, you), "enemy_active": self._active(1, enemy, foe),
                 "battle": {"id": self.battle_id, "you": you, "foe": foe}}
