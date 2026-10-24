@@ -15,13 +15,12 @@ Battle tab shows in the big card.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QIntValidator
 from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.game.stats import form_name, from_battler, preview, with_level
-from tracker.ui.widgets import MovePicker, SpeciesPicker
+from tracker.game.stats import adjusted, form_name, from_battler, preview
+from tracker.ui.widgets import BoundedIntValidator, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
 
@@ -34,7 +33,7 @@ class MoveRow:
         self.picker = MovePicker()
 
         self.power = QLineEdit(objectName="power")   # editable base power (numbers 0-999 only)
-        self.power.setValidator(QIntValidator(0, 999, self.power))
+        self.power.setValidator(BoundedIntValidator(0, 999, self.power))
         self.power.setAlignment(Qt.AlignCenter)
         self.power.setFixedWidth(46)
         self.power.setToolTip("Base power")
@@ -122,7 +121,7 @@ class CalcSide(QFrame):
         self.species.setToolTip("Pick any Pokémon to calculate with (and show in the big card)")
         level_label = QLabel("Lv", objectName="dim")
         self.level = QLineEdit(objectName="power")
-        self.level.setValidator(QIntValidator(1, 100, self.level))
+        self.level.setValidator(BoundedIntValidator(1, 100, self.level))
         self.level.setAlignment(Qt.AlignCenter)
         self.level.setFixedWidth(40)
         self.level.setToolTip("Level (stats scale with it)")
@@ -164,6 +163,8 @@ class CalcSide(QFrame):
         self.pin_snapshot = None      # last seen copy of it (used if it's not in the team list)
         self.pin_species = None       # pinned preview species, when pin_pid is None
         self.level_override = None    # level typed by hand, or None
+        self.iv_override = {}         # IVs edited by hand (in the big card), e.g. {"Spe": 31}
+        self.ev_override = {}         # EVs edited by hand
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -183,19 +184,35 @@ class CalcSide(QFrame):
         """The Pokémon this side calculates with (live, pinned, or a preview), at the chosen
         level. None if there's nothing to show."""
         base = self._base()
-        if base is not None and self.level_override and base.level and self.level_override != base.level:
-            base = with_level(base, self.level_override)
-        return base
+        if base is None:
+            return None
+        return adjusted(base, self.level_override, self.iv_override, self.ev_override)
 
     def moves(self) -> list:
         """Settings for the 4 move slots (see MoveRow.settings), None for empty slots."""
         return [row.settings() for row in self.rows]
+
+    def set_stat(self, kind: str, stat: str, value: int) -> None:
+        """Change one IV (kind "iv") or EV (kind "ev"). Pins this side, like any other edit."""
+        current = self.subject()
+        if current is None or (current.ivs if kind == "iv" else current.evs)[stat] == value:
+            return
+        self._pin()
+        (self.iv_override if kind == "iv" else self.ev_override)[stat] = value
+        self._sync()
+        if kind == "iv":                # IVs decide Hidden Power's type and power
+            for row in self.rows:
+                move = row.picker.move()
+                if move and move["name"] == "Hidden Power":
+                    row.reset(move)
+        self.subject_changed.emit()
 
     def reset(self) -> None:
         """Forget everything picked by hand and follow the live Pokémon again."""
         self.pinned = False
         self.pin_pid = self.pin_snapshot = self.pin_species = None
         self.level_override = None
+        self.iv_override, self.ev_override = {}, {}
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
         self.subject_changed.emit()
@@ -243,6 +260,7 @@ class CalcSide(QFrame):
     def _on_species(self, name: str):
         previous = self.subject()
         self._pin()
+        self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
             self.pin_pid, self.pin_snapshot, self.pin_species = real.pid, real, None

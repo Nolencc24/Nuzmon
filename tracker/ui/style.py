@@ -30,6 +30,10 @@ QComboBox::down-arrow { image: url("ASSETS/down_arrow.svg"); width: 10px; height
 QComboBox QLineEdit { background: transparent; border: none; padding: 0; }
 QAbstractItemView { background: #22252c; border: 1px solid #343946; selection-background-color: #3a6ff7;
                     selection-color: white; outline: none; }
+QLineEdit#statedit { background: #262a32; border: 1px solid transparent; border-radius: 3px; padding: 0 3px;
+                     font-family: Consolas, 'DejaVu Sans Mono', monospace; }
+QLineEdit#statedit:hover { border-color: #3a3f4b; }
+QLineEdit#statedit:focus { border-color: #3a6ff7; }
 QLabel#movetag { color: #9aa3b5; font-size: 11px; }
 QLineEdit#power { background: #262a32; border: 1px solid #343946; border-radius: 4px; padding: 3px 2px; min-height: 18px; }
 QLineEdit#power:focus { border-color: #3a6ff7; }

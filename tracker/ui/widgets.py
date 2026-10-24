@@ -3,14 +3,62 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QProgressBar, QVBoxLayout)
+                               QLineEdit, QProgressBar, QVBoxLayout)
 
 from tracker.game import gamedata
 from tracker.game.decoder import Pokemon
-from tracker.game.stats import nature_effect
+from tracker.game.stats import EV_MAX, EV_TOTAL_MAX, IV_MAX, nature_effect
 
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
+
+
+class BoundedIntValidator(QValidator):
+    """Whole numbers from low to high. Unlike QIntValidator, a keystroke that would go past
+    the limit is refused outright (QIntValidator lets you type e.g. 45 into a 0-31 box and
+    then silently ignores Enter)."""
+
+    def __init__(self, low: int, high: int, parent=None):
+        super().__init__(parent)
+        self.low, self.high = low, high
+
+    def validate(self, text: str, pos: int):
+        if text == "":
+            return QValidator.State.Intermediate
+        if not text.isdigit() or int(text) > self.high:
+            return QValidator.State.Invalid
+        if int(text) < self.low:
+            return QValidator.State.Intermediate      # e.g. "0" while heading for "07"
+        return QValidator.State.Acceptable
+
+
+class StatEdit(QLineEdit):
+    """A small numbers-only box (IVs, EVs). Emits committed(value) when you finish editing
+    and the value actually changed. Live updates don't overwrite it while you're typing."""
+
+    committed = Signal(int)
+
+    def __init__(self, maximum: int):
+        super().__init__(objectName="statedit")
+        self.setValidator(BoundedIntValidator(0, maximum, self))
+        self.setAlignment(Qt.AlignRight)
+        self.setFixedWidth(38)
+        self._value = 0
+        self.editingFinished.connect(self._commit)
+
+    def show_value(self, value: int):
+        self._value = value
+        if not self.hasFocus():
+            self.setText(str(value))
+
+    def _commit(self):
+        text = self.text()
+        if not text or int(text) == self._value:
+            self.setText(str(self._value))      # empty or unchanged: put the value back
+            return
+        self._value = int(text)
+        self.committed.emit(self._value)
 
 
 class Card(QFrame):
@@ -18,9 +66,13 @@ class Card(QFrame):
 
     wide=True lays the card out in three columns (summary | stats | moves) instead of
     one tall column, which is how the lead Pokémon is shown.
+    editable=True makes the IVs (0-31) and EVs (0-252) editable; changes are reported
+    with stat_edited("iv" or "ev", stat name, value).
     """
 
-    def __init__(self, wide: bool = False):
+    stat_edited = Signal(str, str, int)
+
+    def __init__(self, wide: bool = False, editable: bool = False):
         super().__init__()
         self.setObjectName("card")
         self.setMinimumWidth(270)
@@ -58,10 +110,18 @@ class Card(QFrame):
             grid.addWidget(lbl, 0, c)
             self.cells["header"].append(lbl)
         for r, stat in enumerate(DISPLAY_ORDER, start=1):
-            row = [QLabel(stat, objectName="cell")] + [QLabel(objectName="cell") for _ in range(3)]
+            if editable:
+                iv, ev = StatEdit(IV_MAX), StatEdit(EV_MAX)
+                iv.committed.connect(lambda v, stat=stat: self.stat_edited.emit("iv", stat, v))
+                ev.committed.connect(lambda v, stat=stat: self.stat_edited.emit("ev", stat, v))
+                iv.setToolTip(f"{stat} IV (0-{IV_MAX})")
+                ev.setToolTip(f"{stat} EVs (0-{EV_MAX})")
+            else:
+                iv, ev = QLabel(objectName="cell"), QLabel(objectName="cell")
+            row = [QLabel(stat, objectName="cell"), QLabel(objectName="cell"), iv, ev]
             for c, lbl in enumerate(row):
                 if c:
-                    lbl.setAlignment(Qt.AlignRight)
+                    lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 grid.addWidget(lbl, r, c)
             self.cells[stat] = row
         self.extra = QLabel(objectName="dim")
@@ -117,12 +177,18 @@ class Card(QFrame):
             name, val, iv, ev = self.cells[stat]
             name.setStyleSheet("color:#ff7a7a" if stat == up else "color:#7ab0ff" if stat == down else "")
             val.setText(str(m.stats.get(stat, "?")))
-            iv.setText(str(m.ivs[stat]))
+            for box, value in ((iv, m.ivs[stat]), (ev, m.evs[stat])):
+                if isinstance(box, StatEdit):
+                    box.show_value(value)
+                else:
+                    box.setText(str(value))
             iv.setStyleSheet("color:#3ccf6e" if m.ivs[stat] == 31 else "color:#eb5757" if m.ivs[stat] == 0 else "")
-            ev.setText(str(m.evs[stat]))
 
         hp_type, hp_pow = m.hidden_power
-        self.extra.setText(f"EVs {sum(m.evs.values())}/510  ·  Hidden Power {hp_type} {hp_pow}")
+        total = sum(m.evs.values())
+        over = f"<span style='color:#eb5757'>{total}/{EV_TOTAL_MAX} (over the limit)</span>" \
+            if total > EV_TOTAL_MAX else f"{total}/{EV_TOTAL_MAX}"
+        self.extra.setText(f"EVs {over}  ·  Hidden Power {hp_type} {hp_pow}")
         self.moves.setText("\n".join(f"{mv:<16}{pp:>3} PP" for mv, pp in m.moves) or "(no moves)")
 
 

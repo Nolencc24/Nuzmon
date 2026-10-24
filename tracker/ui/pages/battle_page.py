@@ -31,7 +31,7 @@ class TeamSection(QWidget):
 
         body = QHBoxLayout()
         body.setSpacing(10)
-        self.lead = Card(wide=True)
+        self.lead = Card(wide=True, editable=True)   # IVs/EVs editable (sent to the calculator)
         rows = QVBoxLayout()
         rows.setSpacing(4)
         self.rows = [Row() for _ in range(5)]
@@ -63,9 +63,9 @@ class TeamSection(QWidget):
             row.show_mon(m)
         heading = self.title + ("  ·  IN BATTLE" if in_battle or active is not None else "")
         if featured is not None and featured.preview:
-            heading += "  ·  PREVIEW (not in team)"
+            heading += "  ·  PREVIEW (You Edited Stats  )"
         elif pinned:
-            heading += "  ·  PREVIEW (you edited stats)"
+            heading += "  ·  PREVIEW (You Edited Stats)"
         self.heading.setText(heading)
 
 
@@ -86,6 +86,9 @@ class BattlePage(QWidget):
         # editing species/level/moves in the calculator redraws the big cards right away
         self.info.you.subject_changed.connect(self._render)
         self.info.foe.subject_changed.connect(self._render)
+        # IV/EV edits in a big card change that side of the calculator
+        self.party.lead.stat_edited.connect(self.info.you.set_stat)
+        self.enemy.lead.stat_edited.connect(self.info.foe.set_stat)
 
     def update_data(self, data: dict) -> None:
         """Called by the main window whenever new game data arrives."""

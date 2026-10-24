@@ -1,4 +1,4 @@
-# SoulSilver Tracker
+# Nuzmon
 
 Reads your party and the opponent's Pokémon straight out of DeSmuME's memory and shows
 stats, IVs, EVs, HP, nature, ability, moves and Hidden Power. HP updates live during

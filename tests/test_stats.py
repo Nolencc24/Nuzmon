@@ -31,6 +31,15 @@ def test():
     assert geo50.hp == round(20 * geo50.max_hp / 40)
     assert geo.level == 14 and stats.with_level(geo, 14) is geo           # original untouched
 
+    # changing IVs/EVs recalculates stats and Hidden Power; values are clamped
+    tweaked = stats.adjusted(geo, ivs={"Atk": 0, "Spe": 99}, evs={"Atk": 252, "HP": 300})
+    assert tweaked.ivs["Atk"] == 0 and tweaked.ivs["Spe"] == 31 and tweaked.evs["HP"] == 252
+    assert tweaked.ivs["Def"] == geo.ivs["Def"] and tweaked.level == geo.level
+    assert tweaked.stats == stats.calc_stats(base, tweaked.ivs, tweaked.evs, 14, geo.nature)
+    from tracker.game.decoder import hidden_power_of
+    assert tweaked.hidden_power == hidden_power_of(tweaked.ivs)
+    assert stats.adjusted(geo, ivs=dict(geo.ivs)) is geo                  # no change -> same object
+
     # previews: defaults, forms, moves
     p = stats.preview("Rotom-Wash", 30, [("Thunderbolt", 15), ("", 0)])
     assert p.preview and p.species_id == 479 and p.form == 2 and p.level == 30

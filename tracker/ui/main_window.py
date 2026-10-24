@@ -32,7 +32,7 @@ class MainWindow(QMainWindow):
     def __init__(self, source):
         super().__init__()
         self.source = source
-        self.setWindowTitle("SoulSilver Tracker")
+        self.setWindowTitle("Nuzmon")
 
         root = QWidget()
         lay = QVBoxLayout(root)
