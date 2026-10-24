@@ -98,6 +98,21 @@ def with_status(mon: Pokemon, status: str) -> Pokemon:
     return mon if status == mon.status else dataclasses.replace(mon, status=status)
 
 
+def stage_multiplier(stage: int) -> float:
+    """Stat stage -6..+6 as a multiplier: +1 = 3/2, +2 = 4/2, -1 = 2/3, ..."""
+    return max(2, 2 + stage) / max(2, 2 - stage)
+
+
+def speed(mon: Pokemon, stage: int = 0) -> int:
+    """Speed used for turn order: the Spe stat with its stat stage, then paralysis (a quarter
+    in Gen 4). Not counted yet: items (Choice Scarf, Iron Ball...) and abilities (Swift
+    Swim, Quick Feet...)."""
+    spe = int(mon.stats.get("Spe", 0) * stage_multiplier(stage))
+    if status_kind(mon.status) == "Paralyzed":
+        spe //= 4
+    return spe
+
+
 def with_hp(mon: Pokemon, hp: int, of_max: int | None = None) -> Pokemon:
     """A copy of mon with this much current HP (clamped to 0-max). Returns mon itself if
     nothing changes.

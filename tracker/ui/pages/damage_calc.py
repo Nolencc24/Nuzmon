@@ -19,7 +19,8 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLab
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata
-from tracker.game.stats import adjusted, form_name, from_battler, preview, status_kind, with_hp, with_status
+from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_hp,
+                                with_status)
 from tracker.ui.widgets import BoundedIntValidator, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
@@ -346,11 +347,20 @@ class CalcSide(QFrame):
         # Qt reports "editing finished" on every focus loss (even while closing), so only
         # act when the level really changed.
         text = self.level.text()
+        self.level.setModified(False)     # typing is done: live updates may show the level again
         current = self.subject()
         if not text or current is None or int(text) == current.level:
             self.level.setText(str(current.level) if current is not None and current.level else "")
             return
-        level = max(1, min(100, int(text)))
+        self.set_level(int(text))
+
+    def set_level(self, level: int) -> None:
+        """Change the level (typed here or in the big card); stats scale with it. Pins this
+        side, like any other edit."""
+        current = self.subject()
+        level = max(1, min(100, level))
+        if current is None or level == current.level:
+            return
         self._pin()
         base = self._base()
         self.level_override = None if base is not None and level == base.level and not base.preview else level
@@ -361,7 +371,8 @@ class CalcSide(QFrame):
         """Update the header and (if the Pokémon changed) the move rows to match subject()."""
         subj = self.subject()
         self.species.set_value(form_name(subj) if subj else "", emit=False)
-        self.level.setText(str(subj.level) if subj is not None and subj.level else "")
+        if not self.level.isModified():   # don't overwrite a level you're still typing
+            self.level.setText(str(subj.level) if subj is not None and subj.level else "")
         self.level.setEnabled(subj is not None)
         self.reset_button.setEnabled(self.pinned)
         self.title.setToolTip("Pinned: not following the game. Press Reset to follow it again."
@@ -392,7 +403,14 @@ class InfoPanel(QFrame):
         self.setMinimumHeight(110)
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 10, 14, 10)
-        outer.addWidget(QLabel("DAMAGE CALCULATOR", objectName="section"))
+        header = QHBoxLayout()
+        header.addWidget(QLabel("DAMAGE CALCULATOR", objectName="section"))
+        header.addStretch()
+        self.speed = QLabel(objectName="speed")      # which side moves first
+        self.speed.setToolTip("Speed after stat stages (for the Pokémon that's out) and paralysis.\n"
+                              "Items, abilities and move priority aren't counted yet.")
+        header.addWidget(self.speed)
+        outer.addLayout(header)
 
         columns = QHBoxLayout()          # the two sides, side by side
         columns.setSpacing(12)
@@ -401,8 +419,49 @@ class InfoPanel(QFrame):
         columns.addWidget(self.foe, 1)
         outer.addLayout(columns, 1)
 
+        self.data = None
+        self.you.subject_changed.connect(self._show_speed)
+        self.foe.subject_changed.connect(self._show_speed)
+
+    def _stage(self, side: CalcSide, battler, active: int | None) -> int:
+        """Speed stage of side's Pokémon if it's the one out in battle, else 0."""
+        subj = side.subject()
+        if battler is None or subj is None or subj.preview or subj.pid != battler.pid:
+            return 0
+        slot = side.slot()
+        if slot is not None and active is not None and slot != active:
+            return 0                     # a twin (same PID) that isn't the one out
+        return battler.stages.get("Spe", 0)
+
+    def _show_speed(self) -> None:
+        """Compare the two sides' Pokémon (live, pinned or previews alike)."""
+        you, foe = self.you.subject(), self.foe.subject()
+        if you is None or foe is None:
+            self.speed.setText("")
+            return
+        battle = (self.data or {}).get("battle") or {}
+        speeds = []
+        for side, mon, key, active in ((self.you, you, "you", "party_active"), (self.foe, foe, "foe", "enemy_active")):
+            stage = self._stage(side, battle.get(key), (self.data or {}).get(active))
+            text = str(speed(mon, stage))
+            if stage:
+                text += f" ({stage:+d})"
+            if status_kind(mon.status) == "Paralyzed":
+                text += " (PAR)"
+            speeds.append((speed(mon, stage), text))
+        (mine, mine_text), (theirs, theirs_text) = speeds
+        if mine > theirs:
+            verdict, color = "You move first", "#3ccf6e"
+        elif mine < theirs:
+            verdict, color = "Foe moves first", "#eb5757"
+        else:
+            verdict, color = "Speed tie (random)", "#f2c94c"
+        self.speed.setText(f"Speed  You {mine_text}  vs  Foe {theirs_text}   ·   "
+                           f"<span style='color:{color}; font-weight:600'>{verdict}</span>")
+
     def show_battle(self, data: dict) -> None:
         """In battle, use the Pokémon that are out; otherwise your lead and the opponent's."""
+        self.data = data
         party, enemy = data["party"], data["enemy"]
         battle = data.get("battle")
         if battle:
@@ -419,6 +478,7 @@ class InfoPanel(QFrame):
             foe_team = enemy
         self.you.set_live(you, party)
         self.foe.set_live(foe, foe_team)
+        self._show_speed()
 
 
 def _pick(mons, active):

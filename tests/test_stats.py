@@ -54,6 +54,12 @@ def test():
     assert paralyzed.status == "Paralyzed" and geo.status == "Burned" and paralyzed.stats == geo.stats
     assert stats.with_status(geo, geo.status) is geo
 
+    # turn-order speed: stat stages, then paralysis
+    spe = geo.stats["Spe"]
+    assert stats.speed(geo) == spe and stats.speed(geo, 1) == int(spe * 1.5)
+    assert stats.speed(geo, -2) == int(spe / 2) and stats.speed(geo, 6) == spe * 4
+    assert stats.speed(paralyzed) == spe // 4
+
     # current HP: clamped, scaled when max HP changes, percentages never hide damage
     assert stats.with_hp(geo, 30).hp == 30 and stats.with_hp(geo, 999).hp == 40
     assert stats.with_hp(geo, 20) is geo and geo.hp == 20                 # no change -> same object

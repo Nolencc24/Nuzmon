@@ -40,9 +40,9 @@ class StatEdit(QLineEdit):
 
     committed = Signal(int)
 
-    def __init__(self, maximum: int):
+    def __init__(self, maximum: int, minimum: int = 0):
         super().__init__(objectName="statedit")
-        self.setValidator(BoundedIntValidator(0, maximum, self))
+        self.setValidator(BoundedIntValidator(minimum, maximum, self))
         self.setAlignment(Qt.AlignRight)
         self.setFixedWidth(38)
         self._value = 0
@@ -76,11 +76,12 @@ class Card(QFrame):
     one tall column, which is how the lead Pokémon is shown.
     editable=True makes the IVs (0-31) and EVs (0-252) editable; changes are reported
     with stat_edited("iv" or "ev", stat name, value). It also makes current HP editable,
-    as a number or as a percentage; both are reported as hp_edited(new HP). The nature and
-    status become searchable pickers, reported as nature_edited(nature name) and
-    status_edited(status, one of stats.STATUSES).
+    as a number or as a percentage; both are reported as hp_edited(new HP). The level is
+    editable too, reported as level_edited(level). The nature and status become searchable
+    pickers, reported as nature_edited(nature name) and status_edited(one of stats.STATUSES).
     """
 
+    level_edited = Signal(int)
     stat_edited = Signal(str, str, int)
     hp_edited = Signal(int)
     nature_edited = Signal(str)
@@ -103,13 +104,20 @@ class Card(QFrame):
         top.addWidget(self.name)
         top.addStretch()
         top.addWidget(self.level)
+        if editable:                 # Lv [ 14 ]
+            self.level_edit = StatEdit(100, minimum=1)
+            self.level_edit.setToolTip("Level (stats scale with it)")
+            self.level_edit.committed.connect(self.level_edited.emit)
+            top.addWidget(self.level_edit)
+        else:
+            self.level_edit = None
         lay.addLayout(top)
 
         self.hpbar = QProgressBar(textVisible=False)
         self.hptext = QLabel(objectName="dim")
         lay.addWidget(self.hpbar)
         if editable:
-            # HP [ 23 ] / 40   [ 58 ] %   [ status ]
+            # HP [ 23 ] / 40   [ 58 ] %
             self.hp_edit, self.pct_edit = StatEdit(999), StatEdit(100)
             self.hp_edit.setToolTip("Current HP")
             self.pct_edit.setToolTip("Current HP as a percentage of max HP")
@@ -122,11 +130,12 @@ class Card(QFrame):
             hp_row = QHBoxLayout()
             hp_row.setSpacing(4)
             self.hp_widgets = [QLabel("HP", objectName="dim"), self.hp_edit, self.hpmax,
-                               self.pct_edit, QLabel("%", objectName="dim"), QLabel("  "), self.status]
+                               self.pct_edit, QLabel("%", objectName="dim")]
             for w in self.hp_widgets:
                 hp_row.addWidget(w)
             hp_row.addStretch()
             lay.addLayout(hp_row)
+            self.hp_widgets += [self.level_edit, self.status]   # shown/hidden along with the HP row
         else:
             self.hp_edit = self.status = None
             self.hp_widgets = [self.hptext]
@@ -135,18 +144,18 @@ class Card(QFrame):
         self.info = QLabel(objectName="dim")     # "Nature · Ability" (just the ability if editable)
         self.info.setWordWrap(True)
         if editable:
+            # the nature and status pickers each get a full row, so their labels fit
             self.nature = NaturePicker()
             self.nature.setToolTip("Nature (stats update with it). Search by name, or by stat, e.g. +Atk or -SpA")
             self.nature.value_changed.connect(lambda _label: self.nature_edited.emit(self.nature.nature()))
-            info_row = QHBoxLayout()
-            info_row.setSpacing(6)
-            info_row.addWidget(self.nature)
-            info_row.addWidget(self.info, 1)
-            lay.addLayout(info_row)
+            for picker in (self.nature, self.status):
+                picker.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+                picker.setMinimumContentsLength(12)
+                lay.addWidget(picker)
             self.hp_widgets.append(self.nature)   # shown/hidden along with the HP row
         else:
             self.nature = None
-            lay.addWidget(self.info)
+        lay.addWidget(self.info)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -210,7 +219,11 @@ class Card(QFrame):
             self.name.setText("Egg")
         else:
             self.name.setText(f"{m.species}{'  ★' if m.shiny else ''}  {m.gender}")
-        self.level.setText(f"Lv {m.level}" if m.level is not None else "")
+        if self.level_edit is not None:
+            self.level.setText("Lv")
+            self.level_edit.show_value(m.level or 1)
+        else:
+            self.level.setText(f"Lv {m.level}" if m.level is not None else "")
 
         hp, mx = m.hp or 0, m.max_hp or 1
         pct = hp / mx
@@ -232,7 +245,7 @@ class Card(QFrame):
         if self.nature is not None:
             if not self.nature.lineEdit().isModified():   # don't clobber a search in progress
                 self.nature.set_nature(m.nature, emit=False)
-            self.info.setText(f"· {m.ability}")
+            self.info.setText(f"Ability: {m.ability}")
         else:
             self.info.setText(f"{m.nature} · {m.ability}")
 

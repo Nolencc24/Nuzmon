@@ -93,7 +93,9 @@ class BattlePage(QWidget):
         # editing species/level/moves in the calculator redraws the big cards right away
         self.info.you.subject_changed.connect(self._render)
         self.info.foe.subject_changed.connect(self._render)
-        # IV/EV edits in a big card change that side of the calculator
+        # level and IV/EV edits in a big card change that side of the calculator
+        self.party.lead.level_edited.connect(self.info.you.set_level)
+        self.enemy.lead.level_edited.connect(self.info.foe.set_level)
         self.party.lead.stat_edited.connect(self.info.you.set_stat)
         self.enemy.lead.stat_edited.connect(self.info.foe.set_stat)
         # HP edits too (typed as a number or a percentage)
