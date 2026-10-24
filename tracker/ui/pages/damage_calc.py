@@ -24,6 +24,8 @@ from tracker.game.stats import (adjusted, form_name, from_battler, preview, spee
 from tracker.ui.widgets import BoundedIntValidator, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
+STAGE_STATS = ["Atk", "Def", "SpA", "SpD", "Spe"]
+STAGE_TEXT = [f"{v:+d}" if v else "0" for v in range(6, -7, -1)]   # "+6" ... "0" ... "-6"; index = 6 - stage
 
 
 class MoveRow:
@@ -119,7 +121,6 @@ class CalcSide(QFrame):
         header.setSpacing(6)
         self.title = QLabel(label.upper(), objectName="rowname")
         self.species = SpeciesPicker()
-        self.species.setToolTip("Pick any Pokémon to calculate with (and show in the big card)")
         level_label = QLabel("Lv", objectName="dim")
         self.level = QLineEdit(objectName="power")
         self.level.setValidator(BoundedIntValidator(1, 100, self.level))
@@ -155,6 +156,24 @@ class CalcSide(QFrame):
         move_col = 4 if mirrored else 0
         grid.setColumnStretch(move_col, 1)           # the move box takes the spare width
         lay.addLayout(grid)
+
+        # stat stages: Atk [ 0 ]  Def [ 0 ] ... (follow the battle, or pick by hand)
+        stage_row = QHBoxLayout()
+        stage_row.setSpacing(4)
+        if mirrored:
+            stage_row.addStretch()
+        self.stage_boxes = {}
+        for stat in STAGE_STATS:
+            box = QComboBox(objectName="stage")
+            box.addItems(STAGE_TEXT)
+            box.activated.connect(lambda _index, stat=stat: self._on_stage(stat))   # your picks only
+            stage_row.addWidget(QLabel(stat, objectName="movetag"))
+            stage_row.addWidget(box)
+            stage_row.addSpacing(6)
+            self.stage_boxes[stat] = box
+        if not mirrored:
+            stage_row.addStretch()
+        lay.addLayout(stage_row)
         lay.addStretch()
 
         self.live = None              # the Pokémon that's actually out (or leading)
@@ -170,6 +189,9 @@ class CalcSide(QFrame):
         self.hp_override = None       # (current HP, max HP it was typed against), or None
         self.nature_override = None   # nature picked by hand (in the big card), or None
         self.status_override = None   # status picked by hand (one of stats.STATUSES), or None
+        self.stage_override = {}      # stat stages picked by hand, e.g. {"Atk": 2}
+        self.battler = None           # this side's live Battler in battle (has the stat stages), or None
+        self.active = None            # party index of the Pokémon that's out, or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -179,11 +201,19 @@ class CalcSide(QFrame):
 
     # ---- what this side is about
 
-    def set_live(self, live, team) -> None:
-        """Called on every update with the live Pokémon (or None) and this side's team."""
+    def set_live(self, live, team, battler=None, active: int | None = None) -> None:
+        """Called on every update with the live Pokémon (or None) and this side's team.
+        In battle also with this side's Battler and the party index of the one that's out."""
         self.team = list(team)
         self.live = live
+        self.battler, self.active = battler, active
         self._sync()
+
+    def stages(self) -> dict:
+        """Stat stages (-6..+6) for Atk, Def, SpA, SpD, Spe: picked by hand, else the live
+        battle's if this side's Pokémon is the one out, else 0."""
+        live = self._live_stages()
+        return {s: self.stage_override.get(s, live.get(s, 0)) for s in STAGE_STATS}
 
     def slot(self) -> int | None:
         """Index in this side's team of the Pokémon subject() is based on, or None (a
@@ -265,6 +295,7 @@ class CalcSide(QFrame):
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
         self.hp_override = self.nature_override = self.status_override = None
+        self.stage_override = {}
         self._sync()
         self.subject_changed.emit()
 
@@ -275,11 +306,28 @@ class CalcSide(QFrame):
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
         self.hp_override = self.nature_override = self.status_override = None
+        self.stage_override = {}
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
         self.subject_changed.emit()
 
     # ---- internals
+
+    def _live_stages(self) -> dict:
+        """The battle's stat stages, if this side's Pokémon is the one out; else {}."""
+        b, base = self.battler, self._base()
+        if b is None or base is None or base.preview or base.pid != b.pid:
+            return {}
+        slot = self.slot()
+        if slot is not None and self.active is not None and slot != self.active:
+            return {}                    # a twin (same PID) that isn't the one out
+        return b.stages
+
+    def _on_stage(self, stat: str):
+        self._pin()
+        self.stage_override[stat] = 6 - self.stage_boxes[stat].currentIndex()
+        self._sync()
+        self.subject_changed.emit()
 
     def _base(self):
         if not self.pinned:
@@ -332,6 +380,7 @@ class CalcSide(QFrame):
         self._pin()
         self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP/nature
         self.hp_override = self.nature_override = self.status_override = None
+        self.stage_override = {}
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
             self._pin_to(real)
@@ -378,6 +427,14 @@ class CalcSide(QFrame):
         self.title.setToolTip("Pinned: not following the game. Press Reset to follow it again."
                               if self.pinned else "Following the Pokémon that's out")
 
+        stages = self.stages()
+        for stat, box in self.stage_boxes.items():
+            value = stages[stat]
+            if box.currentIndex() != 6 - value:
+                box.setCurrentIndex(6 - value)
+            box.setEnabled(subj is not None)
+            box.setStyleSheet("color:#3ccf6e" if value > 0 else "color:#eb5757" if value < 0 else "")
+
         hp = subj.hidden_power if subj is not None else None
         for row in self.rows:
             row.hidden_power = hp
@@ -407,8 +464,7 @@ class InfoPanel(QFrame):
         header.addWidget(QLabel("DAMAGE CALCULATOR", objectName="section"))
         header.addStretch()
         self.speed = QLabel(objectName="speed")      # which side moves first
-        self.speed.setToolTip("Speed after stat stages (for the Pokémon that's out) and paralysis.\n"
-                              "Items, abilities and move priority aren't counted yet.")
+
         header.addWidget(self.speed)
         outer.addLayout(header)
 
@@ -423,26 +479,15 @@ class InfoPanel(QFrame):
         self.you.subject_changed.connect(self._show_speed)
         self.foe.subject_changed.connect(self._show_speed)
 
-    def _stage(self, side: CalcSide, battler, active: int | None) -> int:
-        """Speed stage of side's Pokémon if it's the one out in battle, else 0."""
-        subj = side.subject()
-        if battler is None or subj is None or subj.preview or subj.pid != battler.pid:
-            return 0
-        slot = side.slot()
-        if slot is not None and active is not None and slot != active:
-            return 0                     # a twin (same PID) that isn't the one out
-        return battler.stages.get("Spe", 0)
-
     def _show_speed(self) -> None:
         """Compare the two sides' Pokémon (live, pinned or previews alike)."""
         you, foe = self.you.subject(), self.foe.subject()
         if you is None or foe is None:
             self.speed.setText("")
             return
-        battle = (self.data or {}).get("battle") or {}
         speeds = []
-        for side, mon, key, active in ((self.you, you, "you", "party_active"), (self.foe, foe, "foe", "enemy_active")):
-            stage = self._stage(side, battle.get(key), (self.data or {}).get(active))
+        for side, mon in ((self.you, you), (self.foe, foe)):
+            stage = side.stages()["Spe"]
             text = str(speed(mon, stage))
             if stage:
                 text += f" ({stage:+d})"
@@ -476,8 +521,9 @@ class InfoPanel(QFrame):
             you = _pick(party, data.get("party_active"))
             foe = _pick(enemy, data.get("enemy_active"))
             foe_team = enemy
-        self.you.set_live(you, party)
-        self.foe.set_live(foe, foe_team)
+        battle = battle or {}
+        self.you.set_live(you, party, battle.get("you"), data.get("party_active"))
+        self.foe.set_live(foe, foe_team, battle.get("foe"), data.get("enemy_active"))
         self._show_speed()
 
 

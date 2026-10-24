@@ -37,6 +37,7 @@ QLineEdit#statedit:hover { border-color: #3a3f4b; }
 QLineEdit#statedit:focus { border-color: #3a6ff7; }
 QLabel#movetag { color: #9aa3b5; font-size: 11px; }
 QLabel#speed { color: #9aa3b5; }
+QComboBox#stage { min-width: 34px; font-family: Consolas, 'DejaVu Sans Mono', monospace; }
 QLineEdit#power { background: #262a32; border: 1px solid #343946; border-radius: 4px; padding: 3px 2px; min-height: 18px; }
 QLineEdit#power:focus { border-color: #3a6ff7; }
 QComboBox:disabled, QLineEdit:disabled, QPushButton:disabled { color: #4a505c; }
