@@ -428,6 +428,13 @@ class SpeciesPicker(SearchPicker):
         super().__init__(gamedata.all_species_names(), "Search Pokémon…", allow_empty=False)
 
 
+class ItemPicker(SearchPicker):
+    """Searchable selector over the held items. Empty = holding nothing."""
+
+    def __init__(self):
+        super().__init__(gamedata.all_item_names(), "No item")
+
+
 class AbilityPicker(SearchPicker):
     """Searchable selector over every Gen 4 ability."""
 

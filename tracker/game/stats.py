@@ -6,6 +6,7 @@ Stat math (Gen 3-5 formula) and Pokémon built for the calculator.
     with_hp(mon, 20)                    ... or with 20 current HP
     with_status(mon, "Burned")          ... or with a status condition
     with_ability(mon, "Torrent")        ... or with another ability
+    with_item(mon, "Leftovers")         ... or holding another item
     preview("Garchomp", 40, moves)      a made-up Pokémon (IVs 31, EVs 0, neutral nature)
     from_battler(battler)               a Pokémon built from live battle data (wild Pokémon)
 """
@@ -114,16 +115,42 @@ def with_ability(mon: Pokemon, ability: str) -> Pokemon:
     return mon if ability == mon.ability else dataclasses.replace(mon, ability=ability)
 
 
+def with_item(mon: Pokemon, item: str | None) -> Pokemon:
+    """A copy of mon holding another item (None or "" = nothing). Returns mon itself if
+    unchanged.
+
+    For the damage calculator later: Choice Band / Choice Specs x1.5 Atk / SpA, Life Orb
+    x1.3 damage, Expert Belt x1.2 super-effective damage, type-boosting items (Charcoal,
+    Mystic Water, plates...) x1.2 for their type, Muscle Band / Wise Glasses x1.1, Light
+    Ball (Pikachu) and Thick Club (Cubone/Marowak) x2 Atk, resist berries halve one
+    super-effective hit, and Leftovers / Black Sludge heal 1/16 per turn.
+    """
+    item = item or None
+    if item == mon.held_item_name:
+        return mon
+    
+    return dataclasses.replace(mon, held_item_name=item, held_item=gamedata.item_id(item))
+
+
+# Held items that change Speed (Quick Powder only works for Ditto)
+SPEED_ITEMS = {"Choice Scarf": 1.5, "Iron Ball": 0.5, "Macho Brace": 0.5, "Power Weight": 0.5,
+               "Power Bracer": 0.5, "Power Belt": 0.5, "Power Lens": 0.5, "Power Band": 0.5,
+               "Power Anklet": 0.5}
+
+
 def stage_multiplier(stage: int) -> float:
     """Stat stage -6..+6 as a multiplier: +1 = 3/2, +2 = 4/2, -1 = 2/3, ..."""
     return max(2, 2 + stage) / max(2, 2 - stage)
 
 
 def speed(mon: Pokemon, stage: int = 0) -> int:
-    """Speed used for turn order: the Spe stat with its stat stage, then paralysis (a quarter
-    in Gen 4). Not counted yet: items (Choice Scarf, Iron Ball...) and abilities (Swift
-    Swim, Quick Feet...)."""
+    """Speed used for turn order: the Spe stat with its stat stage, then held items (Choice
+    Scarf, Iron Ball... see SPEED_ITEMS), then paralysis (a quarter in Gen 4). Not counted
+    yet: abilities (Swift Swim, Quick Feet...)."""
     spe = int(mon.stats.get("Spe", 0) * stage_multiplier(stage))
+    spe = int(spe * SPEED_ITEMS.get(mon.held_item_name, 1))
+    if mon.held_item_name == "Quick Powder" and mon.species_id == 132:     # Ditto
+        spe *= 2
     if status_kind(mon.status) == "Paralyzed":
         spe //= 4
     return spe

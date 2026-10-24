@@ -138,3 +138,19 @@ def item_name(item_id: int) -> str | None:
         return None
     i = item(item_id)
     return i["name"] if i else f"Item #{item_id}"
+
+
+@cache
+def _item_ids_by_name() -> dict[str, int]:
+    return {i["name"]: int(k) for k, i in _load("items.json").items()}
+
+
+def item_id(name: str | None) -> int:
+    """The game's ID for an item name (0 for no item or an unknown name)."""
+    return _item_ids_by_name().get(name or "", 0)
+
+
+@cache
+def all_item_names() -> list[str]:
+    """Every held item in the data, alphabetically (for searchable pickers)."""
+    return sorted(_item_ids_by_name())

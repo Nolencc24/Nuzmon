@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLab
 
 from tracker.game import gamedata
 from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_ability,
-                                with_hp, with_status)
-from tracker.ui.widgets import AbilityPicker, BoundedIntValidator, MovePicker, SpeciesPicker
+                                with_hp, with_item, with_status)
+from tracker.ui.widgets import AbilityPicker, BoundedIntValidator, ItemPicker, MovePicker, SpeciesPicker
 
 CATEGORIES = ["Physical", "Special", "Status"]
 STAGE_STATS = ["Atk", "Def", "SpA", "SpD", "Spe"]
@@ -160,11 +160,20 @@ class CalcSide(QFrame):
         grid.setColumnStretch(move_col, 1)           # the move box takes the spare width
         lay.addLayout(grid)
 
-        # stat stages: Atk [ 0 ]  Def [ 0 ] ... (follow the battle, or pick by hand)
+        # [ held item ]  Atk [ 0 ]  Def [ 0 ] ... (item on the outer edge; all follow the
+        # battle, or pick by hand)
         stage_row = QHBoxLayout()
         stage_row.setSpacing(4)
+        self.item = ItemPicker()
+        self.item.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.item.setMinimumContentsLength(9)
+
         if mirrored:
             stage_row.addStretch()
+        else:
+            stage_row.addWidget(self.item, 1)
+            stage_row.addSpacing(6)
+            
         self.stage_boxes = {}
         for stat in STAGE_STATS:
             box = QComboBox(objectName="stage")
@@ -174,8 +183,8 @@ class CalcSide(QFrame):
             stage_row.addWidget(box)
             stage_row.addSpacing(6)
             self.stage_boxes[stat] = box
-        if not mirrored:
-            stage_row.addStretch()
+        if mirrored:
+            stage_row.addWidget(self.item, 1)
         lay.addLayout(stage_row)
         lay.addStretch()
 
@@ -194,6 +203,7 @@ class CalcSide(QFrame):
         self.status_override = None   # status picked by hand (one of stats.STATUSES), or None
         self.stage_override = {}      # stat stages picked by hand, e.g. {"Atk": 2}
         self.ability_override = None  # ability picked by hand, or None
+        self.item_override = None     # held item picked by hand ("" = nothing), or None
         self.battler = None           # this side's live Battler in battle (has the stat stages), or None
         self.active = None            # party index of the Pokémon that's out, or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
@@ -201,6 +211,7 @@ class CalcSide(QFrame):
 
         self.species.value_changed.connect(self._on_species)
         self.ability.value_changed.connect(self._on_ability)
+        self.item.value_changed.connect(self._on_item)
         self.level.editingFinished.connect(self._on_level)
         self._sync()
 
@@ -239,6 +250,10 @@ class CalcSide(QFrame):
             mon = with_status(mon, self.status_override)
         if self.ability_override is not None:
             mon = with_ability(mon, self.ability_override)
+        if self.item_override is not None:
+            mon = with_item(mon, self.item_override)
+        elif self._is_out():
+            mon = with_item(mon, self.battler.item)   # the item in battle (e.g. a berry eaten)
         return mon
 
     def moves(self) -> list:
@@ -302,6 +317,7 @@ class CalcSide(QFrame):
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
         self.hp_override = self.nature_override = self.status_override = self.ability_override = None
+        self.item_override = None
         self.stage_override = {}
         self._sync()
         self.subject_changed.emit()
@@ -313,6 +329,7 @@ class CalcSide(QFrame):
         self.level_override = None
         self.iv_override, self.ev_override = {}, {}
         self.hp_override = self.nature_override = self.status_override = self.ability_override = None
+        self.item_override = None
         self.stage_override = {}
         self._filled = None            # refill the moves from the live Pokémon
         self._sync()
@@ -320,15 +337,26 @@ class CalcSide(QFrame):
 
     # ---- internals
 
-    def _live_stages(self) -> dict:
-        """The battle's stat stages, if this side's Pokémon is the one out; else {}."""
+    def _is_out(self) -> bool:
+        """True if this side's Pokémon is the one out in battle (so self.battler is it)."""
         b, base = self.battler, self._base()
         if b is None or base is None or base.preview or base.pid != b.pid:
-            return {}
+            return False
         slot = self.slot()
-        if slot is not None and self.active is not None and slot != self.active:
-            return {}                    # a twin (same PID) that isn't the one out
-        return b.stages
+        return slot is None or self.active is None or slot == self.active   # not a twin that's in
+
+    def _live_stages(self) -> dict:
+        """The battle's stat stages, if this side's Pokémon is the one out; else {}."""
+        return self.battler.stages if self._is_out() else {}
+
+    def _on_item(self, name: str):
+        current = self.subject()
+        if current is None or (name or None) == current.held_item_name:
+            return
+        self._pin()
+        self.item_override = name
+        self._sync()
+        self.subject_changed.emit()
 
     def _on_ability(self, name: str):
         current = self.subject()
@@ -396,6 +424,7 @@ class CalcSide(QFrame):
         self._pin()
         self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP/nature
         self.hp_override = self.nature_override = self.status_override = self.ability_override = None
+        self.item_override = None
         self.stage_override = {}
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
@@ -439,6 +468,9 @@ class CalcSide(QFrame):
         if not self.ability.lineEdit().isModified():   # don't clobber a search in progress
             self.ability.set_value(subj.ability if subj else "", emit=False)
         self.ability.setEnabled(subj is not None)
+        if not self.item.lineEdit().isModified():
+            self.item.set_value(subj.held_item_name or "" if subj else "", emit=False)
+        self.item.setEnabled(subj is not None)
         if not self.level.isModified():   # don't overwrite a level you're still typing
             self.level.setText(str(subj.level) if subj is not None and subj.level else "")
         self.level.setEnabled(subj is not None)
