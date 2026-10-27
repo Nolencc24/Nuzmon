@@ -1,4 +1,5 @@
-"""Checks the stat formula and level scaling. Run:  python tests/test_stats.py"""
+"""Checks the stat formula, level scaling, and the edited copies the calculator uses
+(nature, status, ability, held item, HP, speed). Run:  python tests/test_stats.py"""
 
 import os
 import sys
@@ -60,11 +61,23 @@ def test():
     names = gamedata.all_ability_names()
     assert len(names) == 123 and "Torrent" in names and names == sorted(names)
 
-    # turn-order speed: stat stages, then paralysis
+    # held items: by name, with the game's ID kept in step; "" or None = nothing
+    scarf = stats.with_item(geo, "Choice Scarf")
+    assert scarf.held_item_name == "Choice Scarf" and scarf.held_item == gamedata.item_id("Choice Scarf") > 0
+    assert stats.with_item(scarf, "").held_item_name is None and stats.with_item(scarf, None).held_item == 0
+    assert stats.with_item(geo, geo.held_item_name) is geo                # no change -> same object
+    assert scarf.stats == geo.stats and geo.held_item_name != "Choice Scarf"
+    items = gamedata.all_item_names()
+    assert "Leftovers" in items and items == sorted(items) and gamedata.item_id("Not An Item") == 0
+
+    # turn-order speed: stat stages, then items, then paralysis
     spe = geo.stats["Spe"]
     assert stats.speed(geo) == spe and stats.speed(geo, 1) == int(spe * 1.5)
     assert stats.speed(geo, -2) == int(spe / 2) and stats.speed(geo, 6) == spe * 4
     assert stats.speed(paralyzed) == spe // 4
+    assert stats.speed(scarf) == int(spe * 1.5) and stats.speed(stats.with_item(geo, "Iron Ball")) == spe // 2
+    assert stats.speed(stats.with_item(geo, "Quick Powder")) == spe                  # only works for Ditto
+    assert stats.speed(stats.with_status(scarf, "Paralyzed"), 1) == int(int(spe * 1.5) * 1.5) // 4
 
     # current HP: clamped, scaled when max HP changes, percentages never hide damage
     assert stats.with_hp(geo, 30).hp == 30 and stats.with_hp(geo, 999).hp == 40
