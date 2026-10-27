@@ -7,12 +7,15 @@
 The foe's side is mirrored, so each side's move boxes sit along the panel's outer edge.
 
 Each side follows the Pokémon that's out (live). Changing anything on a side (species,
-level, a move or its settings) pins that side: it stops following the game until you
-press its Reset button. The side's current Pokémon (CalcSide.subject()) is also what the
-Battle tab shows in the big card.
+level, a move or its settings, or anything in the big card) pins that side: it stops
+following the game until you press its Reset button. Every hand edit lives in one Edits
+object per side. The side's current Pokémon (CalcSide.subject()) is the game's Pokémon
+with those edits applied, and it's also what the Battle tab shows in the big card.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass, field
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
@@ -26,6 +29,38 @@ from tracker.ui.widgets import AbilityPicker, BoundedIntValidator, ItemPicker, M
 CATEGORIES = ["Physical", "Special", "Status"]
 STAGE_STATS = ["Atk", "Def", "SpA", "SpD", "Spe"]
 STAGE_TEXT = [f"{v:+d}" if v else "0" for v in range(6, -7, -1)]   # "+6" ... "0" ... "-6"; index = 6 - stage
+
+
+@dataclass
+class Edits:
+    """Everything changed by hand on one side of the calculator. None (or empty) means
+    "not changed": the game's value is used. Starting over (Reset, picking another Pokémon)
+    is just a fresh Edits(), so a new kind of edit only needs a field here and a line in
+    apply().
+    """
+    level: int | None = None
+    ivs: dict = field(default_factory=dict)      # e.g. {"Spe": 31}
+    evs: dict = field(default_factory=dict)
+    hp: tuple | None = None       # (current HP, max HP it was typed against)
+    nature: str | None = None
+    status: str | None = None     # one of stats.STATUSES
+    ability: str | None = None
+    item: str | None = None       # "" = holding nothing
+    stages: dict = field(default_factory=dict)   # e.g. {"Atk": 2}; see CalcSide.stages()
+
+    def apply(self, mon):
+        """mon with these edits made (stats recalculated). Stat stages aren't part of a
+        Pokémon, so they're read with CalcSide.stages() instead."""
+        mon = adjusted(mon, self.level, self.ivs, self.evs, self.nature)
+        if self.hp is not None:
+            mon = with_hp(mon, *self.hp)
+        if self.status is not None:
+            mon = with_status(mon, self.status)
+        if self.ability is not None:
+            mon = with_ability(mon, self.ability)
+        if self.item is not None:
+            mon = with_item(mon, self.item)
+        return mon
 
 
 class MoveRow:
@@ -178,7 +213,7 @@ class CalcSide(QFrame):
         for stat in STAGE_STATS:
             box = QComboBox(objectName="stage")
             box.addItems(STAGE_TEXT)
-            box.activated.connect(lambda _index, stat=stat: self._on_stage(stat))   # your picks only
+            box.activated.connect(lambda index, stat=stat: self.set_stage(stat, 6 - index))   # your picks only
             stage_row.addWidget(QLabel(stat, objectName="movetag"))
             stage_row.addWidget(box)
             stage_row.addSpacing(6)
@@ -195,23 +230,15 @@ class CalcSide(QFrame):
         self.pin_slot = None          # ...and its index in self.team (twins share a PID)
         self.pin_snapshot = None      # last seen copy of it (used if it's not in the team list)
         self.pin_species = None       # pinned preview species, when pin_pid is None
-        self.level_override = None    # level typed by hand, or None
-        self.iv_override = {}         # IVs edited by hand (in the big card), e.g. {"Spe": 31}
-        self.ev_override = {}         # EVs edited by hand
-        self.hp_override = None       # (current HP, max HP it was typed against), or None
-        self.nature_override = None   # nature picked by hand (in the big card), or None
-        self.status_override = None   # status picked by hand (one of stats.STATUSES), or None
-        self.stage_override = {}      # stat stages picked by hand, e.g. {"Atk": 2}
-        self.ability_override = None  # ability picked by hand, or None
-        self.item_override = None     # held item picked by hand ("" = nothing), or None
+        self.edits = Edits()          # everything changed by hand
         self.battler = None           # this side's live Battler in battle (has the stat stages), or None
         self.active = None            # party index of the Pokémon that's out, or None
         self._filled = None           # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
         self.species.value_changed.connect(self._on_species)
-        self.ability.value_changed.connect(self._on_ability)
-        self.item.value_changed.connect(self._on_item)
+        self.ability.value_changed.connect(self.set_ability)
+        self.item.value_changed.connect(self.set_item)
         self.level.editingFinished.connect(self._on_level)
         self._sync()
 
@@ -229,7 +256,7 @@ class CalcSide(QFrame):
         """Stat stages (-6..+6) for Atk, Def, SpA, SpD, Spe: picked by hand, else the live
         battle's if this side's Pokémon is the one out, else 0."""
         live = self._live_stages()
-        return {s: self.stage_override.get(s, live.get(s, 0)) for s in STAGE_STATS}
+        return {s: self.edits.stages.get(s, live.get(s, 0)) for s in STAGE_STATS}
 
     def slot(self) -> int | None:
         """Index in this side's team of the Pokémon subject() is based on, or None (a
@@ -243,16 +270,8 @@ class CalcSide(QFrame):
         base = self._base()
         if base is None:
             return None
-        mon = adjusted(base, self.level_override, self.iv_override, self.ev_override, self.nature_override)
-        if self.hp_override is not None:
-            mon = with_hp(mon, *self.hp_override)
-        if self.status_override is not None:
-            mon = with_status(mon, self.status_override)
-        if self.ability_override is not None:
-            mon = with_ability(mon, self.ability_override)
-        if self.item_override is not None:
-            mon = with_item(mon, self.item_override)
-        elif self._is_out():
+        mon = self.edits.apply(base)
+        if self.edits.item is None and self._is_out():
             mon = with_item(mon, self.battler.item)   # the item in battle (e.g. a berry eaten)
         return mon
 
@@ -260,82 +279,100 @@ class CalcSide(QFrame):
         """Settings for the 4 move slots (see MoveRow.settings), None for empty slots."""
         return [row.settings() for row in self.rows]
 
+    # ---- hand edits (from this side's boxes or the big card). Each pins this side.
+
+    def set_level(self, level: int) -> None:
+        """Change the level (typed here or in the big card); stats scale with it."""
+        current = self.subject()
+        level = max(1, min(100, level))
+        if current is None or level == current.level:
+            return
+        base = self._base()
+        same_as_game = base is not None and level == base.level and not base.preview
+        self._edit(level=None if same_as_game else level)
+
     def set_stat(self, kind: str, stat: str, value: int) -> None:
-        """Change one IV (kind "iv") or EV (kind "ev"). Pins this side, like any other edit."""
+        """Change one IV (kind "iv") or EV (kind "ev")."""
         current = self.subject()
         if current is None or (current.ivs if kind == "iv" else current.evs)[stat] == value:
             return
-        self._pin()
-        (self.iv_override if kind == "iv" else self.ev_override)[stat] = value
-        self._sync()
-        if kind == "iv":                # IVs decide Hidden Power's type and power
-            for row in self.rows:
+        if kind == "iv":
+            self._edit(ivs={**self.edits.ivs, stat: value})
+            for row in self.rows:           # IVs decide Hidden Power's type and power
                 move = row.picker.move()
                 if move and move["name"] == "Hidden Power":
                     row.reset(move)
-        self.subject_changed.emit()
+        else:
+            self._edit(evs={**self.edits.evs, stat: value})
 
     def set_hp(self, hp: int) -> None:
-        """Change current HP (typed in the big card). Pins this side, like any other edit.
-        If the max HP changes later (e.g. a new level), the HP keeps its percentage."""
+        """Change current HP. If the max HP changes later (e.g. a new level), the HP keeps
+        its percentage."""
         current = self.subject()
-        if current is None or current.hp == hp:
-            return
-        self._pin()
-        self.hp_override = (hp, current.max_hp)
-        self._sync()
-        self.subject_changed.emit()
+        if current is not None and current.hp != hp:
+            self._edit(hp=(hp, current.max_hp))
 
     def set_nature(self, nature: str) -> None:
-        """Change the nature (picked in the big card). Pins this side, like any other edit."""
         current = self.subject()
-        if current is None or current.nature == nature:
-            return
-        self._pin()
-        self.nature_override = nature
-        self._sync()
-        self.subject_changed.emit()
+        if current is not None and current.nature != nature:
+            self._edit(nature=nature)
 
     def set_status(self, status: str) -> None:
-        """Change the status condition (picked in the big card). Pins this side, like any
-        other edit. The damage calculator will use it later (burn, poison damage...)."""
+        """Change the status condition (one of stats.STATUSES)."""
         current = self.subject()
-        if current is None or status_kind(current.status) == status:
-            return
-        self._pin()
-        self.status_override = status
-        self._sync()
-        self.subject_changed.emit()
+        if current is not None and status_kind(current.status) != status:
+            self._edit(status=status)
+
+    def set_ability(self, ability: str) -> None:
+        current = self.subject()
+        if current is not None and ability and ability != current.ability:
+            self._edit(ability=ability)
+
+    def set_item(self, item: str) -> None:
+        """Change the held item ("" = nothing)."""
+        current = self.subject()
+        if current is not None and (item or None) != current.held_item_name:
+            self._edit(item=item or "")
+
+    def set_stage(self, stat: str, stage: int) -> None:
+        """Change one stat stage (-6..+6). Overrides the battle's value for that stat."""
+        if self.subject() is not None:
+            self._edit(stages={**self.edits.stages, stat: stage})
+
+    # ---- which Pokémon this side is about
 
     def select(self, mon) -> None:
-        """Calculate with this team member (clicked in the Battle tab), with its own level,
-        IVs, EVs, HP and nature. Pins this side, like any other edit."""
+        """Calculate with this team member (clicked in the Battle tab), as it is in the
+        game: earlier hand edits are dropped. Pins this side."""
         if mon is None or mon.preview:
             return
         self._pin()
         self._pin_to(mon)
-        self.level_override = None
-        self.iv_override, self.ev_override = {}, {}
-        self.hp_override = self.nature_override = self.status_override = self.ability_override = None
-        self.item_override = None
-        self.stage_override = {}
-        self._sync()
-        self.subject_changed.emit()
+        self.edits = Edits()
+        self._changed()
 
     def reset(self) -> None:
         """Forget everything picked by hand and follow the live Pokémon again."""
         self.pinned = False
         self.pin_pid = self.pin_slot = self.pin_snapshot = self.pin_species = None
-        self.level_override = None
-        self.iv_override, self.ev_override = {}, {}
-        self.hp_override = self.nature_override = self.status_override = self.ability_override = None
-        self.item_override = None
-        self.stage_override = {}
+        self.edits = Edits()
         self._filled = None            # refill the moves from the live Pokémon
-        self._sync()
-        self.subject_changed.emit()
+        self._changed()
 
     # ---- internals
+
+    def _edit(self, **changes) -> None:
+        """Record hand edits (Edits fields, e.g. _edit(nature="Adamant")), pin this side
+        and redraw."""
+        self._pin()
+        for name, value in changes.items():
+            setattr(self.edits, name, value)
+        self._changed()
+
+    def _changed(self) -> None:
+        """Redraw this side and tell the Battle tab (big card, speed line) to redraw."""
+        self._sync()
+        self.subject_changed.emit()
 
     def _is_out(self) -> bool:
         """True if this side's Pokémon is the one out in battle (so self.battler is it)."""
@@ -349,30 +386,6 @@ class CalcSide(QFrame):
         """The battle's stat stages, if this side's Pokémon is the one out; else {}."""
         return self.battler.stages if self._is_out() else {}
 
-    def _on_item(self, name: str):
-        current = self.subject()
-        if current is None or (name or None) == current.held_item_name:
-            return
-        self._pin()
-        self.item_override = name
-        self._sync()
-        self.subject_changed.emit()
-
-    def _on_ability(self, name: str):
-        current = self.subject()
-        if current is None or name == current.ability:
-            return
-        self._pin()
-        self.ability_override = name
-        self._sync()
-        self.subject_changed.emit()
-
-    def _on_stage(self, stat: str):
-        self._pin()
-        self.stage_override[stat] = 6 - self.stage_boxes[stat].currentIndex()
-        self._sync()
-        self.subject_changed.emit()
-
     def _base(self):
         if not self.pinned:
             return self.live
@@ -384,7 +397,7 @@ class CalcSide(QFrame):
             if current is not None:
                 self.pin_snapshot = current          # fresh data (live HP) when available
             return self.pin_snapshot
-        level = self.level_override or 50
+        level = self.edits.level or 50
         return preview(self.pin_species, level, self._picked_moves())
 
     def _pin_to(self, mon):
@@ -415,27 +428,20 @@ class CalcSide(QFrame):
     def _on_move_edit(self, *_args):
         if self._filling:
             return
-        self._pin()
-        self._sync()
-        self.subject_changed.emit()
+        self._edit()
 
     def _on_species(self, name: str):
         previous = self.subject()
         self._pin()
-        self.iv_override, self.ev_override = {}, {}     # a different Pokémon: its own IVs/EVs/HP/nature
-        self.hp_override = self.nature_override = self.status_override = self.ability_override = None
-        self.item_override = None
-        self.stage_override = {}
+        self.edits = Edits()                       # a different Pokémon: start from its own values
         real = next((m for m in self.team + [self.live] if m is not None and form_name(m) == name), None)
         if real is not None:                       # your own Pokémon: use the real one
             self._pin_to(real)
-            self.level_override = None
-        else:                                      # anything else: a preview
+        else:                                      # anything else: a preview, at the level shown before
             self.pin_pid = self.pin_slot = self.pin_snapshot = None
             self.pin_species = name
-            self.level_override = self.level_override or (previous.level if previous and previous.level else 50)
-        self._sync()
-        self.subject_changed.emit()
+            self.edits.level = previous.level if previous and previous.level else 50
+        self._changed()
 
     def _on_level(self):
         # Qt reports "editing finished" on every focus loss (even while closing), so only
@@ -448,19 +454,6 @@ class CalcSide(QFrame):
             return
         self.set_level(int(text))
 
-    def set_level(self, level: int) -> None:
-        """Change the level (typed here or in the big card); stats scale with it. Pins this
-        side, like any other edit."""
-        current = self.subject()
-        level = max(1, min(100, level))
-        if current is None or level == current.level:
-            return
-        self._pin()
-        base = self._base()
-        self.level_override = None if base is not None and level == base.level and not base.preview else level
-        self._sync()
-        self.subject_changed.emit()
-
     def _sync(self):
         """Update the header and (if the Pokémon changed) the move rows to match subject()."""
         subj = self.subject()
@@ -469,7 +462,7 @@ class CalcSide(QFrame):
             self.ability.set_value(subj.ability if subj else "", emit=False)
         self.ability.setEnabled(subj is not None)
         if not self.item.lineEdit().isModified():
-            self.item.set_value(subj.held_item_name or "" if subj else "", emit=False)
+            self.item.set_value((subj.held_item_name or "") if subj else "", emit=False)
         self.item.setEnabled(subj is not None)
         if not self.level.isModified():   # don't overwrite a level you're still typing
             self.level.setText(str(subj.level) if subj is not None and subj.level else "")
