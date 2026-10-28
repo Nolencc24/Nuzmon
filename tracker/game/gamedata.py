@@ -150,6 +150,11 @@ def item_id(name: str | None) -> int:
     return _item_ids_by_name().get(name or "", 0)
 
 
+def item_by_name(name: str | None) -> dict | None:
+    """An item's data (fling_power, natural_gift...) by name, or None."""
+    return item(item_id(name)) if name else None
+
+
 @cache
 def all_item_names() -> list[str]:
     """Every held item in the data, alphabetically (for searchable pickers)."""

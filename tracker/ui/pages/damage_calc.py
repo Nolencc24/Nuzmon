@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout)
 
-from tracker.game import gamedata
+from tracker.game import gamedata, moves
 from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_ability,
                                 with_hp, with_item, with_status)
 from tracker.ui.widgets import AbilityPicker, BoundedIntValidator, ItemPicker, MovePicker, SpeciesPicker
@@ -65,21 +65,32 @@ class Edits:
 
 class MoveRow:
     """One move slot and its adjustable settings. Not a widget itself: the widgets are
-    placed into the side's grid so every row's columns line up."""
+    placed into the side's grid so every row's columns line up.
+
+    The power and type shown are worked out for the current situation (game/moves.py):
+    Flail's power from the user's HP, Night Shade's fixed damage from its level, and so on.
+    context() gives (user, target, user's stat stages, target's stat stages); refresh()
+    recalculates. A power or type you type in yourself is kept until another move is picked.
+    """
 
     def __init__(self):
         self.picker = MovePicker()
+        self.context = lambda: (None, None, {}, {})   # set by the CalcSide this row is on
+        self.effect = None                            # the last moves.effect() for this row
+        self._power_edited = self._type_edited = False
 
         self.power = QLineEdit(objectName="power")   # editable base power (numbers 0-999 only)
         self.power.setValidator(BoundedIntValidator(0, 999, self.power))
         self.power.setAlignment(Qt.AlignCenter)
-        self.power.setFixedWidth(46)
+        self.power.setFixedWidth(50)
         self.power.setToolTip("Base power")
+        self.power.textEdited.connect(lambda _text: setattr(self, "_power_edited", True))
 
         self.type = QComboBox()
         self.type.addItems(gamedata.types() + ["???"])
         self.type.setFixedWidth(92)
         self.type.setToolTip("Move type")
+        self.type.activated.connect(lambda _index: setattr(self, "_type_edited", True))
 
         self.category = QComboBox()
         self.category.addItems(CATEGORIES)
@@ -91,7 +102,6 @@ class MoveRow:
         self.crit.setFixedWidth(44)
         self.crit.setToolTip("Critical hit")
 
-        self.hidden_power = None   # (type, power) of the Pokémon using this row, for Hidden Power
         self.picker.move_changed.connect(self.reset)
         self.reset(None)
 
@@ -105,28 +115,57 @@ class MoveRow:
         for w in (self.power, self.type, self.category, self.crit):
             w.setEnabled(has)
         self.crit.setChecked(False)
+        self._power_edited = self._type_edited = False
         if not has:
+            self.effect = None
             self.power.setText("")
+            self.power.setReadOnly(False)
+            self.power.setStyleSheet("")
             self.type.setCurrentIndex(-1)        # blank, not a leftover value
             self.category.setCurrentIndex(-1)
             self.picker.setToolTip("")
             return
-        power, mtype = move["power"], move["type"]
-        if move["name"] == "Hidden Power" and self.hidden_power:
-            mtype, power = self.hidden_power       # this Pokémon's own Hidden Power
-        self.power.setText(str(power or 0))
-        self.type.setCurrentText(mtype)
         self.category.setCurrentText(move["category"])
         acc = f"{move['accuracy']}% accuracy" if move["accuracy"] else "never misses"
         self.picker.setToolTip(f"{move['name']}: {acc}, {move['pp']} PP, priority {move['priority']:+d}")
+        self.refresh()
+
+    def refresh(self) -> None:
+        """Recalculate the power (and type, for Hidden Power / Natural Gift) for the current
+        user and target. Called whenever either of them changes."""
+        move = self.picker.move()
+        if move is None:
+            return
+        self.effect = eff = moves.effect(move, *self.context())
+        if not self._type_edited:
+            self.type.setCurrentText(eff.type)
+        if self._power_edited:
+            return
+        fixed = eff.fixed is not None
+        if fixed:      # always this much damage: shown in orange, can't be edited
+            text = f"{eff.fixed[0]}-{eff.fixed[1]}" if isinstance(eff.fixed, tuple) else f"{eff.fixed} HP"
+        else:
+            text = str(eff.power)
+        if self.power.text() != text:
+            self.power.setText(text)
+        self.power.setReadOnly(fixed)
+        self.power.setStyleSheet("color:#e8a13a" if fixed else "")
+        tip = "Fixed damage (skips the damage formula)" if fixed else "Base power"
+        self.power.setToolTip(f"{tip}\n{eff.note}" if eff.note else tip)
 
     def settings(self) -> dict | None:
-        """Everything the damage formula needs about this move, or None for an empty slot."""
+        """Everything the damage formula needs about this move, or None for an empty slot.
+        fixed (when not None) is the exact damage, which replaces the formula; hits is the
+        (fewest, most) number of hits."""
         move = self.picker.move()
         if move is None:
             return None
-        return {"move": move, "power": int(self.power.text() or 0), "type": self.type.currentText(),
-                "category": self.category.currentText(), "crit": self.crit.isChecked()}
+        eff = self.effect
+        fixed = eff.fixed if eff is not None and not self._power_edited else None
+        power = 0 if fixed is not None else int(self.power.text() or 0)
+        return {"move": move, "power": power, "type": self.type.currentText(),
+                "category": self.category.currentText(), "crit": self.crit.isChecked(),
+                "fixed": fixed, "hits": eff.hits if eff else (1, 1), "note": eff.note if eff else ""}
 
 
 class CalcSide(QFrame):
@@ -191,6 +230,7 @@ class CalcSide(QFrame):
             row.type.activated.connect(self._on_move_edit)
             row.category.activated.connect(self._on_move_edit)
             row.crit.clicked.connect(self._on_move_edit)
+            row.context = self._move_context
         move_col = 4 if mirrored else 0
         grid.setColumnStretch(move_col, 1)           # the move box takes the spare width
         lay.addLayout(grid)
@@ -233,7 +273,9 @@ class CalcSide(QFrame):
         self.edits = Edits()          # everything changed by hand
         self.battler = None           # this side's live Battler in battle (has the stat stages), or None
         self.active = None            # party index of the Pokémon that's out, or None
-        self._filled = None           # identity of the Pokémon whose moves are in the rows
+        self.target = None            # the other side's Pokémon (what these moves hit), or None
+        self.target_stages = {}       # ...and its stat stages
+        self._filled = None          # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
         self.species.value_changed.connect(self._on_species)
@@ -296,14 +338,17 @@ class CalcSide(QFrame):
         current = self.subject()
         if current is None or (current.ivs if kind == "iv" else current.evs)[stat] == value:
             return
-        if kind == "iv":
+        if kind == "iv":                    # (IVs also decide Hidden Power: the rows refresh)
             self._edit(ivs={**self.edits.ivs, stat: value})
-            for row in self.rows:           # IVs decide Hidden Power's type and power
-                move = row.picker.move()
-                if move and move["name"] == "Hidden Power":
-                    row.reset(move)
         else:
             self._edit(evs={**self.edits.evs, stat: value})
+
+    def set_target(self, target, stages: dict) -> None:
+        """The other side's Pokémon and stat stages, which this side's moves hit. Some moves'
+        power depends on them (Low Kick, Gyro Ball, Super Fang...)."""
+        self.target, self.target_stages = target, stages
+        for row in self.rows:
+            row.refresh()
 
     def set_hp(self, hp: int) -> None:
         """Change current HP. If the max HP changes later (e.g. a new level), the HP keeps
@@ -479,9 +524,6 @@ class CalcSide(QFrame):
             box.setEnabled(subj is not None)
             box.setStyleSheet("color:#3ccf6e" if value > 0 else "color:#eb5757" if value < 0 else "")
 
-        hp = subj.hidden_power if subj is not None else None
-        for row in self.rows:
-            row.hidden_power = hp
         ident = self._identity()
         if ident != self._filled:     # a different Pokémon: refill the moves
             self._filled = ident
@@ -493,6 +535,12 @@ class CalcSide(QFrame):
                     row.reset(row.picker.move())
             finally:
                 self._filling = False
+        for row in self.rows:         # the user changed (HP, level, item...): recalculate powers
+            row.refresh()
+
+    def _move_context(self):
+        """(user, target, user's stages, target's stages) for this side's move rows."""
+        return self.subject(), self.target, self.stages(), self.target_stages
 
 
 class InfoPanel(QFrame):
@@ -520,8 +568,15 @@ class InfoPanel(QFrame):
         outer.addLayout(columns, 1)
 
         self.data = None
-        self.you.subject_changed.connect(self._show_speed)
-        self.foe.subject_changed.connect(self._show_speed)
+        self.you.subject_changed.connect(self._sides_changed)
+        self.foe.subject_changed.connect(self._sides_changed)
+
+    def _sides_changed(self) -> None:
+        """Either side's Pokémon changed: each side's moves now hit a different target, and
+        the speed comparison may flip."""
+        self.you.set_target(self.foe.subject(), self.foe.stages())
+        self.foe.set_target(self.you.subject(), self.you.stages())
+        self._show_speed()
 
     def _show_speed(self) -> None:
         """Compare the two sides' Pokémon (live, pinned or previews alike)."""
@@ -568,7 +623,7 @@ class InfoPanel(QFrame):
         battle = battle or {}
         self.you.set_live(you, party, battle.get("you"), data.get("party_active"))
         self.foe.set_live(foe, foe_team, battle.get("foe"), data.get("enemy_active"))
-        self._show_speed()
+        self._sides_changed()
 
 
 def _pick(mons, active):
