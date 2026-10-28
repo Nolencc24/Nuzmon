@@ -196,12 +196,15 @@ class CalcSide(QFrame):
         self.title = QLabel(label.upper(), objectName="rowname")
         self.species = SpeciesPicker()
         self.ability = AbilityPicker()
+        for picker in (self.species, self.ability):    # size to a short name, not the longest one
+            picker.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            picker.setMinimumContentsLength(7)
         self.ability.setToolTip("Ability (the damage calculator will use it, e.g. Torrent at low HP)")
         level_label = QLabel("Lv", objectName="dim")
         self.level = QLineEdit(objectName="power")
         self.level.setValidator(BoundedIntValidator(1, 100, self.level))
         self.level.setAlignment(Qt.AlignCenter)
-        self.level.setFixedWidth(40)
+        self.level.setFixedWidth(34)
         self.level.setToolTip("Level (stats scale with it)")
         self.reset_button = QPushButton("Reset", objectName="reset")
         self.reset_button.setToolTip("Go back to the Pokémon that's out in the game")
@@ -238,10 +241,10 @@ class CalcSide(QFrame):
         # [ held item ]  Atk [ 0 ]  Def [ 0 ] ... (item on the outer edge; all follow the
         # battle, or pick by hand)
         stage_row = QHBoxLayout()
-        stage_row.setSpacing(4)
+        stage_row.setSpacing(3)
         self.item = ItemPicker()
         self.item.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.item.setMinimumContentsLength(9)
+        self.item.setMinimumContentsLength(4)
 
         if mirrored:
             stage_row.addStretch()
@@ -253,10 +256,10 @@ class CalcSide(QFrame):
         for stat in STAGE_STATS:
             box = QComboBox(objectName="stage")
             box.addItems(STAGE_TEXT)
+            box.setFixedWidth(44)                    # just wide enough for "+6" and the arrow
             box.activated.connect(lambda index, stat=stat: self.set_stage(stat, 6 - index))   # your picks only
             stage_row.addWidget(QLabel(stat, objectName="movetag"))
             stage_row.addWidget(box)
-            stage_row.addSpacing(6)
             self.stage_boxes[stat] = box
         if mirrored:
             stage_row.addWidget(self.item, 1)
