@@ -45,6 +45,7 @@ class StatEdit(QLineEdit):
         self.setValidator(BoundedIntValidator(minimum, maximum, self))
         self.setAlignment(Qt.AlignRight)
         self.setFixedWidth(38)
+        self.setFixedHeight(18)          # short, so the big card stays compact
         self._value = 0
         self._typing = False          # True from your first keystroke until you finish
         self.textEdited.connect(lambda _text: setattr(self, "_typing", True))
@@ -92,7 +93,7 @@ class Card(QFrame):
         self.setObjectName("card")
         self.setMinimumWidth(270)
         outer = QHBoxLayout(self) if wide else QVBoxLayout(self)
-        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setContentsMargins(12, 8, 12, 8)
         outer.setSpacing(18 if wide else 6)
         lay = QVBoxLayout()          # column 1: name, HP, nature/ability
         lay.setSpacing(6)
@@ -114,6 +115,7 @@ class Card(QFrame):
         lay.addLayout(top)
 
         self.hpbar = QProgressBar(textVisible=False)
+        self.hpbar.setFixedHeight(8)     # as drawn (otherwise it reserves 18px)
         self.hptext = QLabel(objectName="dim")
         lay.addWidget(self.hpbar)
         if editable:
@@ -155,7 +157,8 @@ class Card(QFrame):
             self.hp_widgets.append(self.nature)   # shown/hidden along with the HP row
         else:
             self.nature = None
-        lay.addWidget(self.info)
+        if not wide:                 # (wide cards put it under the moves, to stay short)
+            lay.addWidget(self.info)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -185,14 +188,18 @@ class Card(QFrame):
         self.extra.setWordWrap(True)
         self.moves = QLabel(objectName="cell")
         if wide:
+            self.extra.setWordWrap(False)   # one line: "EVs 0/510 · Hidden Power Bug 42"
             lay.addWidget(self.extra)
             lay.addStretch()
-            col2, col3 = QVBoxLayout(), QVBoxLayout()   # column 2: stat grid, column 3: moves
+            # column 2: stat grid; column 3: moves, then the ability (kept out of column 1
+            # so the card is no taller than the stat grid)
+            col2, col3 = QVBoxLayout(), QVBoxLayout()
             col2.addLayout(grid)
             col2.addStretch()
             col3.addWidget(QLabel("Moves", objectName="dim"))
             col3.addWidget(self.moves)
             col3.addStretch()
+            col3.addWidget(self.info)
             outer.addLayout(col2, 3)
             outer.addLayout(col3, 2)
         else:
@@ -289,7 +296,7 @@ class Row(QFrame):
         super().__init__()
         self.setObjectName("row")
         self.mon = None
-        self.setFixedHeight(34)
+        self.setFixedHeight(30)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 4, 10, 4)
         lay.setSpacing(10)

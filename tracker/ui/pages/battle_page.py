@@ -29,7 +29,7 @@ class TeamSection(QWidget):
         self.title = title.upper()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(6)
+        outer.setSpacing(4)
         self.heading = QLabel(self.title, objectName="section")
         outer.addWidget(self.heading)
 
@@ -37,7 +37,7 @@ class TeamSection(QWidget):
         body.setSpacing(10)
         self.lead = Card(wide=True, editable=True)   # IVs/EVs editable (sent to the calculator)
         rows = QVBoxLayout()
-        rows.setSpacing(4)
+        rows.setSpacing(3)
         self.rows = [Row() for _ in range(5)]
         for r in self.rows:
             r.clicked.connect(self.row_clicked.emit)
@@ -80,8 +80,8 @@ class BattlePage(QWidget):
     def __init__(self):
         super().__init__()
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 8, 0, 0)
-        lay.setSpacing(10)
+        lay.setContentsMargins(0, 6, 0, 0)
+        lay.setSpacing(6)
         self.party = TeamSection("Your party")
         self.info = InfoPanel()
         self.enemy = TeamSection("Opponent")

@@ -78,6 +78,13 @@ def test():
     assert stats.speed(scarf) == int(spe * 1.5) and stats.speed(stats.with_item(geo, "Iron Ball")) == spe // 2
     assert stats.speed(stats.with_item(geo, "Quick Powder")) == spe                  # only works for Ditto
     assert stats.speed(stats.with_status(scarf, "Paralyzed"), 1) == int(int(spe * 1.5) * 1.5) // 4
+    # weather abilities, Quick Feet and Tailwind
+    swimmer = stats.with_ability(geo, "Swift Swim")
+    assert stats.speed(swimmer, weather="Rain") == spe * 2 and stats.speed(swimmer, weather="Sun") == spe
+    assert stats.speed(stats.with_ability(geo, "Chlorophyll"), weather="Sun") == spe * 2
+    assert stats.speed(geo, tailwind=True) == spe * 2
+    feet = stats.with_ability(paralyzed, "Quick Feet")
+    assert stats.speed(feet) == spe * 3 // 2                             # and paralysis doesn't slow it
 
     # current HP: clamped, scaled when max HP changes, percentages never hide damage
     assert stats.with_hp(geo, 30).hp == 30 and stats.with_hp(geo, 999).hp == 40

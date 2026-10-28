@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 
 from tracker.game.decoder import encrypt, parse
 from tracker.game.samples import GEODUDE, SHINY_CUBONE, as_party
+from tracker.game.stats import with_item as stats_with_item
 from tracker.ui.pages.damage_calc import CalcSide, Edits
 
 NO_STAGES = {"Atk": 0, "Def": 0, "Spe": 0, "SpA": 0, "SpD": 0, "Acc": 0, "Eva": 0}
@@ -104,6 +105,54 @@ def test():
     assert side.slot() == 1 and side.stages()["Atk"] == 1
     side.select(twins[0])
     assert side.slot() == 0 and side.stages()["Atk"] == 0
+
+    # the field: changes reach the move rows and the speed line, and a new battle clears it
+    from tracker.ui.pages.damage_calc import InfoPanel
+    panel = InfoPanel()
+    data = {"party": team, "enemy": [cub, None, None, None, None, None], "party_active": 0, "enemy_active": 0,
+            "battle": None}
+    panel.show_battle(data)
+    panel.you.rows[0].picker.set_move("Weather Ball")
+    assert panel.you.rows[0].power.text() == "50"
+    panel.weather.setCurrentIndex(1)
+    panel.weather.activated.emit(1)                    # pick "Rain"
+    assert panel.field.weather == "Rain" and panel.you.rows[0].power.text() == "100"
+    assert panel.you.rows[0].type.currentText() == "Water"
+    panel.trick_room.click()
+    assert panel.field.trick_room and "Trick Room" in panel.speed.text()
+    panel.side_buttons[("foe", "tailwind")].click()
+    assert panel.field.foe.tailwind and "(Tailwind)" in panel.speed.text()
+    panel.show_battle(data)                            # same (no) battle: the field stays
+    assert panel.field.weather == "Rain"
+    panel.show_battle({**data, "battle": {"id": 1, "you": battler(geo), "foe": battler(cub)}})
+    assert panel.field.weather == "None" and not panel.field.trick_room and not panel.field.foe.tailwind
+    assert not panel.trick_room.isChecked() and panel.weather.currentText() == "None"
+    assert panel.you.rows[0].power.text() == "50"
+
+    # weather abilities set the weather when their Pokémon comes out
+    from tracker.game.stats import speed, with_ability
+    rainy = with_ability(geo, "Drizzle")                       # Speed 13
+    def battle(you, foe, active_you, active_foe, id=2):
+        party = [you, None, None, None, None, None]
+        enemy = [foe, cub, None, None, None, None]
+        return {"party": party, "enemy": enemy, "party_active": active_you, "enemy_active": active_foe,
+                "battle": {"id": id, "you": battler(party[active_you]), "foe": battler(enemy[active_foe])}}
+    panel.show_battle(battle(rainy, cub, 0, 1))                # only your Drizzle comes out
+    assert panel.field.weather == "Rain" and "Drizzle" in panel.weather.toolTip()
+    panel.weather.setCurrentIndex(0)
+    panel.weather.activated.emit(0)                            # cleared by hand: stays cleared...
+    panel.show_battle(battle(rainy, cub, 0, 1))
+    assert panel.field.weather == "None"
+    panel.show_battle(battle(rainy, cub, 0, 0))                # ...until a new switch-in (no setter: no change)
+    assert panel.field.weather == "None"
+    slow_sun = with_ability(cub, "Drought")                    # Speed 13, like Geodude...
+    fast_rain = stats_with_item(rainy, "Choice Scarf")         # ...so the Drizzle one gets a Scarf
+    assert speed(fast_rain) > speed(slow_sun)
+    panel.show_battle(battle(fast_rain, slow_sun, 0, 0, id=3))  # both come out at the start of a battle
+    assert panel.field.weather == "Sun"                        # the slower one's weather stays
+    panel.show_battle(battle(slow_sun, with_ability(geo, "Drizzle"), 0, 0, id=4))
+    assert speed(slow_sun) == speed(geo)                       # a Speed tie: the foe's (listed last) wins
+    assert panel.field.weather == "Rain"
 
     del app
     print("All calc tests passed.")

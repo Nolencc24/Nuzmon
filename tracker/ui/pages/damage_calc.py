@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLab
                                QPushButton, QVBoxLayout)
 
 from tracker.game import gamedata, moves
+from tracker.game.field import WEATHERS, Field, current_weather, weather_after_switch_ins
 from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_ability,
                                 with_hp, with_item, with_status)
 from tracker.ui.widgets import AbilityPicker, BoundedIntValidator, ItemPicker, MovePicker, SpeciesPicker
@@ -69,13 +70,14 @@ class MoveRow:
 
     The power and type shown are worked out for the current situation (game/moves.py):
     Flail's power from the user's HP, Night Shade's fixed damage from its level, and so on.
-    context() gives (user, target, user's stat stages, target's stat stages); refresh()
+    context() gives (user, target, user's stat stages, target's stat stages, field, which
+    side the user is on); refresh()
     recalculates. A power or type you type in yourself is kept until another move is picked.
     """
 
     def __init__(self):
         self.picker = MovePicker()
-        self.context = lambda: (None, None, {}, {})   # set by the CalcSide this row is on
+        self.context = lambda: (None, None, {}, {}, None, "you")   # set by the CalcSide this row is on
         self.effect = None                            # the last moves.effect() for this row
         self._power_edited = self._type_edited = False
 
@@ -188,8 +190,8 @@ class CalcSide(QFrame):
         super().__init__()
         self.setObjectName("calcside")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 10, 12, 10)
-        lay.setSpacing(6)
+        lay.setContentsMargins(10, 6, 10, 6)
+        lay.setSpacing(4)
 
         header = QHBoxLayout()
         header.setSpacing(6)
@@ -219,7 +221,7 @@ class CalcSide(QFrame):
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(6)
+        grid.setVerticalSpacing(3)
         self.rows = [MoveRow() for _ in range(4)]
         for r, row in enumerate(self.rows):
             widgets = row.widgets()
@@ -278,6 +280,8 @@ class CalcSide(QFrame):
         self.active = None            # party index of the Pokémon that's out, or None
         self.target = None            # the other side's Pokémon (what these moves hit), or None
         self.target_stages = {}       # ...and its stat stages
+        self.field = None             # the calculator's field conditions (game/field.py)
+        self.side_name = "foe" if mirrored else "you"   # which side of the field this is
         self._filled = None          # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -346,10 +350,10 @@ class CalcSide(QFrame):
         else:
             self._edit(evs={**self.edits.evs, stat: value})
 
-    def set_target(self, target, stages: dict) -> None:
-        """The other side's Pokémon and stat stages, which this side's moves hit. Some moves'
-        power depends on them (Low Kick, Gyro Ball, Super Fang...)."""
-        self.target, self.target_stages = target, stages
+    def set_target(self, target, stages: dict, field: Field | None = None) -> None:
+        """The other side's Pokémon and stat stages, which this side's moves hit, and the
+        field. Some moves' power depends on them (Low Kick, Gyro Ball, Weather Ball...)."""
+        self.target, self.target_stages, self.field = target, stages, field
         for row in self.rows:
             row.refresh()
 
@@ -542,19 +546,32 @@ class CalcSide(QFrame):
             row.refresh()
 
     def _move_context(self):
-        """(user, target, user's stages, target's stages) for this side's move rows."""
-        return self.subject(), self.target, self.stages(), self.target_stages
+        """(user, target, user's stages, target's stages, field, side) for the move rows."""
+        return self.subject(), self.target, self.stages(), self.target_stages, self.field, self.side_name
+
+
+# (Side attribute, button text, what it does) for each side's field toggles
+SIDE_CONDITIONS = [("reflect", "Reflect", "halves physical damage taken"),
+                   ("light_screen", "Light Screen", "halves special damage taken"),
+                   ("tailwind", "Tailwind", "doubles Speed")]
+WEATHER_TIP = "Weather (Weather Ball, Solar Beam, Swift Swim / Chlorophyll...)"
 
 
 class InfoPanel(QFrame):
-    """The space between the two teams: the damage calculator."""
+    """The space between the two teams: the damage calculator.
+
+    Under the title is the field: your side's screens and Tailwind on the left, the
+    weather and Trick Room in the middle, the foe's on the right. They're set by hand and
+    cleared when a battle starts or ends. When a Pokémon with a weather ability (Drizzle,
+    Drought...) comes out in battle, the weather is set for it.
+    """
 
     def __init__(self):
         super().__init__()
         self.setObjectName("infopanel")
-        self.setMinimumHeight(110)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 10, 14, 10)
+        outer.setContentsMargins(12, 6, 12, 6)
+        outer.setSpacing(4)
         header = QHBoxLayout()
         header.addWidget(QLabel("DAMAGE CALCULATOR", objectName="section"))
         header.addStretch()
@@ -562,6 +579,40 @@ class InfoPanel(QFrame):
 
         header.addWidget(self.speed)
         outer.addLayout(header)
+
+        # [Reflect][Light Screen][Tailwind]   Weather [None v] [Trick Room]   [Tailwind][Light Screen][Reflect]
+        self.field = Field()
+        self._field_battle = None        # the battle id the field was set during (None = not in battle)
+        self._out = {"you": None, "foe": None}   # who each side had out last update, to spot switch-ins
+        field_row = QHBoxLayout()
+        field_row.setSpacing(4)
+        self.side_buttons = {}           # ("you" / "foe", Side attribute) -> its toggle button
+        for side in ("you", "foe"):
+            if side == "foe":
+                field_row.addStretch()
+            conditions = SIDE_CONDITIONS if side == "you" else SIDE_CONDITIONS[::-1]
+            for attr, text, what in conditions:
+                button = QPushButton(text, objectName="toggle")
+                button.setCheckable(True)
+                whose = "your" if side == "you" else "the foe's"
+                button.setToolTip(f"{text} on {whose} side: {what}")
+                button.clicked.connect(lambda on, side=side, attr=attr: self._set_field(side, attr, on))
+                field_row.addWidget(button)
+                self.side_buttons[(side, attr)] = button
+            if side == "you":
+                field_row.addStretch()
+                field_row.addWidget(QLabel("Weather", objectName="movetag"))
+                self.weather = QComboBox()
+                self.weather.addItems(WEATHERS)
+                self.weather.setToolTip(WEATHER_TIP)
+                self.weather.activated.connect(lambda i: self._set_field(None, "weather", WEATHERS[i]))
+                field_row.addWidget(self.weather)
+                self.trick_room = QPushButton("Trick Room", objectName="toggle")
+                self.trick_room.setCheckable(True)
+                self.trick_room.setToolTip("Trick Room: slower Pokémon move first")
+                self.trick_room.clicked.connect(lambda on: self._set_field(None, "trick_room", on))
+                field_row.addWidget(self.trick_room)
+        outer.addLayout(field_row)
 
         columns = QHBoxLayout()          # the two sides, side by side
         columns.setSpacing(12)
@@ -574,11 +625,25 @@ class InfoPanel(QFrame):
         self.you.subject_changed.connect(self._sides_changed)
         self.foe.subject_changed.connect(self._sides_changed)
 
+    def _set_field(self, side: str | None, attr: str, value) -> None:
+        """Change one field condition: on a side ("you" / "foe"), or the whole field (None)."""
+        setattr(self.field if side is None else getattr(self.field, side), attr, value)
+        self._sides_changed()
+
+    def reset_field(self) -> None:
+        """Clear every field condition (each battle starts with a clean field)."""
+        self.field = Field()
+        self.weather.setCurrentIndex(0)
+        self.weather.setToolTip(WEATHER_TIP)
+        self.trick_room.setChecked(False)
+        for button in self.side_buttons.values():
+            button.setChecked(False)
+
     def _sides_changed(self) -> None:
-        """Either side's Pokémon changed: each side's moves now hit a different target, and
-        the speed comparison may flip."""
-        self.you.set_target(self.foe.subject(), self.foe.stages())
-        self.foe.set_target(self.you.subject(), self.you.stages())
+        """Either side's Pokémon (or the field) changed: each side's moves now hit a
+        different target, and the speed comparison may flip."""
+        self.you.set_target(self.foe.subject(), self.foe.stages(), self.field)
+        self.foe.set_target(self.you.subject(), self.you.stages(), self.field)
         self._show_speed()
 
     def _show_speed(self) -> None:
@@ -587,22 +652,31 @@ class InfoPanel(QFrame):
         if you is None or foe is None:
             self.speed.setText("")
             return
+        weather = current_weather(self.field, you, foe)
         speeds = []
         for side, mon in ((self.you, you), (self.foe, foe)):
             stage = side.stages()["Spe"]
-            text = str(speed(mon, stage))
+            tailwind = getattr(self.field, side.side_name).tailwind
+            value = speed(mon, stage, weather, tailwind)
+            text = str(value)
             if stage:
                 text += f" ({stage:+d})"
-            if status_kind(mon.status) == "Paralyzed":
+            if tailwind:
+                text += " (Tailwind)"
+            if status_kind(mon.status) == "Paralyzed" and mon.ability != "Quick Feet":
                 text += " (PAR)"
-            speeds.append((speed(mon, stage), text))
+            speeds.append((value, text))
         (mine, mine_text), (theirs, theirs_text) = speeds
+        if self.field.trick_room:        # slower moves first
+            mine, theirs = theirs, mine
         if mine > theirs:
             verdict, color = "You move first", "#3ccf6e"
         elif mine < theirs:
             verdict, color = "Foe moves first", "#eb5757"
         else:
             verdict, color = "Speed tie (random)", "#f2c94c"
+        if self.field.trick_room:
+            verdict += " (Trick Room)"
         self.speed.setText(f"Speed  You {mine_text}  vs  Foe {theirs_text}   ·   "
                            f"<span style='color:{color}; font-weight:600'>{verdict}</span>")
 
@@ -611,6 +685,10 @@ class InfoPanel(QFrame):
         self.data = data
         party, enemy = data["party"], data["enemy"]
         battle = data.get("battle")
+        battle_id = battle["id"] if battle else None
+        if battle_id != self._field_battle:     # a battle started or ended: screens, weather... are gone
+            self._field_battle = battle_id
+            self.reset_field()
         if battle:
             # by party index, not PID: a trainer's identical Pokémon share one PID
             pa, ea = data.get("party_active"), data.get("enemy_active")
@@ -626,7 +704,26 @@ class InfoPanel(QFrame):
         battle = battle or {}
         self.you.set_live(you, party, battle.get("you"), data.get("party_active"))
         self.foe.set_live(foe, foe_team, battle.get("foe"), data.get("enemy_active"))
+        self._weather_from_switch_ins(battle_id, data)
         self._sides_changed()
+
+    def _weather_from_switch_ins(self, battle_id, data: dict) -> None:
+        """If a Pokémon with a weather ability just came out, set the weather. When both
+        sides send one out at once, the slower one's weather is the one that stays."""
+        entering = []
+        for side, active in ((self.you, "party_active"), (self.foe, "enemy_active")):
+            battler = side.battler
+            out = (battle_id, data.get(active), battler.pid) if battler is not None else None
+            if out is not None and out != self._out[side.side_name] and side.live is not None:
+                tailwind = getattr(self.field, side.side_name).tailwind
+                weather = current_weather(self.field, self.you.live, self.foe.live)
+                entering.append((side.live, speed(side.live, 0, weather, tailwind)))
+            self._out[side.side_name] = out
+        weather, setter = weather_after_switch_ins(self.field.weather, entering)
+        if setter is not None:
+            self.field.weather = weather
+            self.weather.setCurrentIndex(WEATHERS.index(weather))
+            self.weather.setToolTip(f"{weather}: set by {setter.species}'s {setter.ability}\n{WEATHER_TIP}")
 
 
 def _pick(mons, active):

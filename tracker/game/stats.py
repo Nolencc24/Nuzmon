@@ -17,6 +17,7 @@ import dataclasses
 
 from . import gamedata
 from .decoder import STAT_NAMES, Pokemon, hidden_power_of
+from .field import WEATHER_SPEED
 
 NATURE_STATS = ["Atk", "Def", "Spe", "SpA", "SpD"]   # order used by the nature table
 SHOWDOWN_KEYS = {"HP": "hp", "Atk": "atk", "Def": "def", "Spe": "spe", "SpA": "spa", "SpD": "spd"}
@@ -143,15 +144,24 @@ def stage_multiplier(stage: int) -> float:
     return max(2, 2 + stage) / max(2, 2 - stage)
 
 
-def speed(mon: Pokemon, stage: int = 0) -> int:
-    """Speed used for turn order: the Spe stat with its stat stage, then held items (Choice
-    Scarf, Iron Ball... see SPEED_ITEMS), then paralysis (a quarter in Gen 4). Not counted
-    yet: abilities (Swift Swim, Quick Feet...)."""
+def speed(mon: Pokemon, stage: int = 0, weather: str = "None", tailwind: bool = False) -> int:
+    """Speed used for turn order: the Spe stat with its stat stage, then abilities (Swift
+    Swim in rain, Chlorophyll in sun, Quick Feet with a status), held items (Choice Scarf,
+    Iron Ball... see SPEED_ITEMS), Tailwind (x2), then paralysis (a quarter in Gen 4, but
+    not with Quick Feet). Not counted: Unburden and Slow Start, which depend on the turn."""
     spe = int(mon.stats.get("Spe", 0) * stage_multiplier(stage))
+    status = status_kind(mon.status)
+    if WEATHER_SPEED.get(weather) == mon.ability:
+        spe *= 2
+    quick_feet = mon.ability == "Quick Feet" and status != "OK"
+    if quick_feet:
+        spe = spe * 3 // 2
     spe = int(spe * SPEED_ITEMS.get(mon.held_item_name, 1))
     if mon.held_item_name == "Quick Powder" and mon.species_id == 132:     # Ditto
         spe *= 2
-    if status_kind(mon.status) == "Paralyzed":
+    if tailwind:
+        spe *= 2
+    if status == "Paralyzed" and not quick_feet:
         spe //= 4
     return spe
 

@@ -87,6 +87,36 @@ def test():
     assert fx("Wake-Up Slap", pidgey, snorlax).power == 60
     assert fx("Payback", slow, fast).power == 100 and fx("Payback", fast, slow).power == 50
 
+    # the field: weather, Tailwind, Trick Room
+    from tracker.game.field import Field
+    rain, sun = Field(weather="Rain"), Field(weather="Sun")
+    assert (fx("Weather Ball", pidgey).power, fx("Weather Ball", pidgey).type) == (50, "Normal")
+    ball = effect(gamedata.move_by_name("Weather Ball"), pidgey, snorlax, field=rain)
+    assert (ball.power, ball.type) == (100, "Water")
+    assert effect(gamedata.move_by_name("Weather Ball"), pidgey, snorlax, field=Field(weather="Hail")).type == "Ice"
+    golduck = stats.with_ability(stats.preview("Golduck", 30), "Cloud Nine")   # no weather
+    assert effect(gamedata.move_by_name("Weather Ball"), pidgey, golduck, field=rain).power == 50
+    assert effect(gamedata.move_by_name("Solar Beam"), pidgey, snorlax, field=rain).power == 60
+    assert effect(gamedata.move_by_name("Solar Beam"), pidgey, snorlax, field=sun).power == 120
+    windy = Field()
+    windy.you.tailwind = True                                       # the user's side doubles its Speed
+    gyro = gamedata.move_by_name("Gyro Ball")
+    assert effect(gyro, slow, fast, field=windy).power == min(150, 1 + 25 * stats.speed(fast) // (2 * stats.speed(slow)))
+    tail_foe = effect(gyro, slow, fast, field=windy, user_side="foe")   # now it's the target's Tailwind
+    assert tail_foe.power == min(150, 1 + 25 * (2 * stats.speed(fast)) // stats.speed(slow))
+    payback = gamedata.move_by_name("Payback")
+    assert effect(payback, slow, fast, field=Field(trick_room=True)).power == 50   # slow moves first in Trick Room
+
+    # weather abilities: when two setters come out together, the slower one's weather stays
+    from tracker.game.field import weather_after_switch_ins
+    kyogre = stats.with_ability(pidgey, "Drizzle")
+    groudon = stats.with_ability(geodude, "Drought")
+    assert weather_after_switch_ins("None", [(kyogre, 90), (groudon, 50)]) == ("Sun", groudon)
+    assert weather_after_switch_ins("None", [(kyogre, 50), (groudon, 90)]) == ("Rain", kyogre)
+    assert weather_after_switch_ins("Hail", [(kyogre, 70)]) == ("Rain", kyogre)
+    assert weather_after_switch_ins("Hail", [(pidgey, 70), (snorlax, 30)]) == ("Hail", None)   # no setter
+    assert weather_after_switch_ins("Rain", []) == ("Rain", None)
+
     # multi-hit moves
     assert fx("Double Kick", pidgey).hits == (2, 2) and fx("Fury Attack", pidgey).hits == (2, 5)
     assert fx("Rock Blast", stats.with_ability(geodude, "Skill Link")).hits == (5, 5)

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 from . import gamedata
 from .decoder import Pokemon
+from .field import WEATHER_TYPES, Field, current_weather
 from .stats import speed, status_kind
 
 
@@ -93,11 +94,15 @@ def _hits(move: dict, user: Pokemon | None) -> tuple[int, int]:
 
 
 def effect(move: dict, user: Pokemon | None, target: Pokemon | None = None,
-           user_stages: dict | None = None, target_stages: dict | None = None) -> MoveEffect:
+           user_stages: dict | None = None, target_stages: dict | None = None,
+           field: Field | None = None, user_side: str = "you") -> MoveEffect:
     """How move works when user uses it on target. Stages are each side's stat stages
-    (e.g. {"Spe": -1}), used for Gyro Ball, Payback and Punishment. With no user, or no
-    target for a move that needs one, the move's listed power is returned with a note."""
+    (e.g. {"Spe": -1}), used for Gyro Ball, Payback and Punishment; field gives the weather
+    (Weather Ball, Solar Beam), Tailwind and Trick Room; user_side ("you" or "foe") says
+    whose Tailwind is the user's. With no user, or no target for a move that needs one, the
+    move's listed power is returned with a note."""
     name, power, mtype = move["name"], move["power"] or 0, move["type"]
+    weather = current_weather(field, user, target)
     hits = _hits(move, user)
     out = lambda power=power, mtype=mtype, fixed=None, note="": MoveEffect(power, mtype, fixed, hits, note)
     if hits != (1, 1):
@@ -109,6 +114,13 @@ def effect(move: dict, user: Pokemon | None, target: Pokemon | None = None,
     if user is None:
         return out()
     us, ts = user_stages or {}, target_stages or {}
+
+    def speeds() -> tuple[int, int]:
+        """(user's, target's) Speed with stages, weather and each side's Tailwind."""
+        tail = lambda side: field is not None and getattr(field, side).tailwind
+        other = "foe" if user_side == "you" else "you"
+        return (speed(user, us.get("Spe", 0), weather, tail(user_side)),
+                speed(target, ts.get("Spe", 0), weather, tail(other)))
 
     # ---- fixed damage
     if _immune(mtype, target) and (move["fixed_damage"] or name in {"Psywave", "Super Fang", "Endeavor"} | OHKO):
@@ -159,7 +171,7 @@ def effect(move: dict, user: Pokemon | None, target: Pokemon | None = None,
 
     # ---- power from stats, weight, friendship, PP
     if name == "Gyro Ball":
-        mine, theirs = speed(user, us.get("Spe", 0)), speed(target, ts.get("Spe", 0))
+        mine, theirs = speeds()
         p = min(150, 1 + 25 * theirs // max(1, mine))
         return out(p, note=f"Stronger the slower the user is than the target (Speed {mine} vs {theirs})")
     if name in ("Low Kick", "Grass Knot"):
@@ -204,15 +216,28 @@ def effect(move: dict, user: Pokemon | None, target: Pokemon | None = None,
         asleep = status_kind(target.status) == "Asleep"
         return out(120 if asleep else 60, note="Doubles to 120 against a sleeping target (and wakes it)")
     if name == "Payback":
-        later = speed(user, us.get("Spe", 0)) < speed(target, ts.get("Spe", 0))
+        mine, theirs = speeds()
+        trick_room = field is not None and field.trick_room
+        later = mine > theirs if trick_room else mine < theirs
         return out(100 if later else 50, note="Doubles to 100 when the user moves after the target")
+
+    # ---- weather
+    if name == "Weather Ball":
+        if weather in WEATHER_TYPES:
+            return out(100, WEATHER_TYPES[weather], note=f"{weather}: doubles to 100 power and becomes {WEATHER_TYPES[weather]}")
+        return out(50, note="Doubles to 100 and changes type in weather")
+    if name == "Solar Beam":
+        if weather in ("Rain", "Sandstorm", "Hail"):
+            return out(power // 2, note=f"Halved in {weather.lower()}")
+        if weather == "Sun":
+            return out(note="Sun: fires right away, no charging turn")
+        return out(note="Takes a turn to charge (none in sun; halved in other weather)")
 
     # ---- can't be known ahead of time: a typical value and a note
     notes = {
         "Magnitude": (70, "Random: Magnitude 4-10 = 10-150 power (70 is the most common)"),
         "Present": (80, "Random: 40, 80 or 120 power, or heals the target instead"),
         "Spit Up": (100, "100 power per Stockpile (1-3)"),
-        "Weather Ball": (50, "Doubles to 100 and changes type in weather (weather isn't tracked yet)"),
         "Avalanche": (60, "Doubles to 120 if the target hit the user first this turn"),
         "Revenge": (60, "Doubles to 120 if the target hit the user first this turn"),
         "Assurance": (50, "Doubles to 100 if the target was already hurt this turn"),
