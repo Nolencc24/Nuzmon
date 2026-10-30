@@ -101,11 +101,26 @@ class BattleHP:
     Battle copies linger in memory after a battle ends, and a new battle may create a
     fresh copy elsewhere. So for each Pokémon we track every copy (the party entry plus
     any battle copies) and show whichever one changed most recently.
+
+    When each battle copy last changed is tracked once for all Pokémon (self.copies), not
+    per Pokémon: when a twin comes out after its twin fainted, its record is new, but a
+    leftover copy still holding the fainted twin's 0 HP must still count as old.
     """
 
     def __init__(self):
-        self.seen = {}    # pid -> {"party" or RAM offset: (value, time it last changed)}
+        self.seen = {}    # pid (or (pid, side, slot) for twins) -> {"party" or copy key: (value, time it changed)}
+        self.copies = {}  # ("battler" / "copy", RAM offset) -> (value, time it last changed)
         self.first_poll = True
+        self.tick = 0     # counts updates; used as the "time" so changes are ordered exactly
+
+    def _changed_at(self, key, val, now: float) -> float:
+        """When the battle copy at key last changed (shared by every Pokémon that finds it)."""
+        old = self.copies.get(key)
+        if old is None:     # already there when the tracker started: old; appeared later: new
+            self.copies[key] = (val, -2.0 if self.first_poll else now)
+        elif old[0] != val:
+            self.copies[key] = (val, now)
+        return self.copies[key][1]
 
     @staticmethod
     def _matches(ram: bytes, off: int, mon) -> bool:
@@ -156,7 +171,9 @@ class BattleHP:
         """teams: [party, enemy]. active: index of the Pokémon each side has out, or None
         (from BattleState.update). skip: RAM offsets of the real party/enemy entries
         (already read as "party")."""
-        now = time.monotonic()
+        self.tick += 1
+        now = self.tick                     # (a counter, not the clock: two updates never tie)
+        found = set()                       # copy keys seen this time
         for t, team in enumerate(teams):
             pids = [m.pid for m in team if m is not None]
             for i, mon in enumerate(team):
@@ -177,14 +194,13 @@ class BattleHP:
                     values[("copy", off)] = (copy.hp, copy.max_hp, copy.status)
 
                 for key, val in values.items():
-                    if key not in rec:
-                        # Anything already in memory when the tracker starts counts as "old"
-                        # (party slightly newer than battle copies), so a leftover copy from an
-                        # earlier battle can't win. Copies that appear later are new.
-                        if self.first_poll:
-                            rec[key] = (val, -1.0 if key == "party" else -2.0)
-                        else:
-                            rec[key] = (val, now if key != "party" else now - 1e-6)
+                    if key != "party":      # a battle copy: when it changed, for anyone
+                        found.add(key)
+                        rec[key] = (val, self._changed_at(key, val, now))
+                    elif key not in rec:
+                        # The party entry is slightly newer than battle copies already in
+                        # memory at start, so a leftover copy from an earlier battle can't win.
+                        rec[key] = (val, -1.0 if self.first_poll else now - 1e-6)
                     elif rec[key][0] != val:
                         rec[key] = (val, now)
                 for key in [k for k in rec if k not in values]:
@@ -197,6 +213,8 @@ class BattleHP:
                     mon.hp, mon.max_hp, mon.status = rec[newest][0]
                     mon.stats["HP"] = mon.max_hp
                     mon.in_battle = True
+        for key in [k for k in self.copies if k not in found]:
+            del self.copies[key]            # gone or overwritten by something else
         self.first_poll = False
 
 

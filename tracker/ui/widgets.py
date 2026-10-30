@@ -96,7 +96,7 @@ class Card(QFrame):
         outer.setContentsMargins(12, 8, 12, 8)
         outer.setSpacing(18 if wide else 6)
         lay = QVBoxLayout()          # column 1: name, HP, nature/ability
-        lay.setSpacing(6)
+        lay.setSpacing(5)
         outer.addLayout(lay, 3 if wide else 0)
 
         top = QHBoxLayout()
@@ -296,7 +296,7 @@ class Row(QFrame):
         super().__init__()
         self.setObjectName("row")
         self.mon = None
-        self.setFixedHeight(30)
+        self.setFixedHeight(28)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 4, 10, 4)
         lay.setSpacing(10)

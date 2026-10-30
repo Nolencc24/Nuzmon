@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                                QPushButton, QVBoxLayout)
 
-from tracker.game import gamedata, moves
+from tracker.game import damage, gamedata, moves
 from tracker.game.field import WEATHERS, Field, current_weather, weather_after_switch_ins
 from tracker.game.stats import (adjusted, form_name, from_battler, preview, speed, status_kind, with_ability,
                                 with_hp, with_item, with_status)
@@ -190,8 +190,8 @@ class CalcSide(QFrame):
         super().__init__()
         self.setObjectName("calcside")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(10, 6, 10, 6)
-        lay.setSpacing(4)
+        lay.setContentsMargins(10, 4, 10, 4)
+        lay.setSpacing(3)
 
         header = QHBoxLayout()
         header.setSpacing(6)
@@ -221,7 +221,7 @@ class CalcSide(QFrame):
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(6)
-        grid.setVerticalSpacing(3)
+        grid.setVerticalSpacing(2)
         self.rows = [MoveRow() for _ in range(4)]
         for r, row in enumerate(self.rows):
             widgets = row.widgets()
@@ -266,6 +266,12 @@ class CalcSide(QFrame):
         if mirrored:
             stage_row.addWidget(self.item, 1)
         lay.addLayout(stage_row)
+
+        # damage summary: one line per move, against the other side's Pokémon
+        self.summary = QLabel(objectName="summary")
+        self.summary.setTextFormat(Qt.RichText)
+        self.summary.setAlignment((Qt.AlignRight if mirrored else Qt.AlignLeft) | Qt.AlignTop)
+        lay.addWidget(self.summary)
         lay.addStretch()
 
         self.live = None              # the Pokémon that's actually out (or leading)
@@ -282,6 +288,7 @@ class CalcSide(QFrame):
         self.target_stages = {}       # ...and its stat stages
         self.field = None             # the calculator's field conditions (game/field.py)
         self.side_name = "foe" if mirrored else "you"   # which side of the field this is
+        self.target_types = []        # the target's types (for type effectiveness)
         self._filled = None          # identity of the Pokémon whose moves are in the rows
         self._filling = False         # True while the side fills its own rows (not your edits)
 
@@ -306,6 +313,18 @@ class CalcSide(QFrame):
         battle's if this side's Pokémon is the one out, else 0."""
         live = self._live_stages()
         return {s: self.edits.stages.get(s, live.get(s, 0)) for s in STAGE_STATS}
+
+    def types(self) -> list[str]:
+        """This side's Pokémon's types: the live ones while it's out in battle (Roost,
+        Conversion and Color Change can change them), else its species' types."""
+        subj = self.subject()
+        if subj is None:
+            return []
+        live = getattr(self.battler, "types", None) if self._is_out() else None
+        if live:
+            return list(live)
+        sp = gamedata.species(subj.species_id, subj.form)
+        return list(sp["types"]) if sp else []
 
     def slot(self) -> int | None:
         """Index in this side's team of the Pokémon subject() is based on, or None (a
@@ -350,12 +369,55 @@ class CalcSide(QFrame):
         else:
             self._edit(evs={**self.edits.evs, stat: value})
 
-    def set_target(self, target, stages: dict, field: Field | None = None) -> None:
-        """The other side's Pokémon and stat stages, which this side's moves hit, and the
-        field. Some moves' power depends on them (Low Kick, Gyro Ball, Weather Ball...)."""
+    def set_target(self, target, stages: dict, field: Field | None = None,
+                   target_types: list | None = None) -> None:
+        """The other side's Pokémon, stat stages and types, which this side's moves hit, and
+        the field. Recalculates the move rows' power and the damage summary."""
         self.target, self.target_stages, self.field = target, stages, field
+        self.target_types = target_types or []
         for row in self.rows:
             row.refresh()
+        self._show_summary()
+
+    def results(self) -> list:
+        """damage.calculate() for each move row against the target: a Result, or None
+        for an empty slot, a status move, or no target."""
+        user, target = self.subject(), self.target
+        if user is None or target is None:
+            return [None] * len(self.rows)
+        other = "foe" if self.side_name == "you" else "you"
+        return [damage.calculate(user, target, s, self.types(), self.target_types, self.stages(),
+                                 self.target_stages, self.field, other) if s else None
+                for s in self.moves()]
+
+    def _show_summary(self) -> None:
+        """One line per move: damage range, % of the target's max HP, and hits to KO."""
+        lines, tips = [], []
+        for s, result in zip(self.moves(), self.results()):
+            if s is None:
+                lines.append("&nbsp;")
+                continue
+            name = s["move"]["name"]
+            if result is None:
+                lines.append(f"<span style='color:#7d8492'>{name}: no damage</span>")
+                continue
+            if result.no_effect:
+                lines.append(f"<b>{name}</b>&nbsp; <span style='color:#7d8492'>{result.no_effect}</span>")
+                continue
+            lo, hi = result.percent()
+            if result.low == result.high:          # fixed damage: one number
+                amount = f"{result.low} ({lo:.1f}%)"
+            else:
+                amount = f"{result.low}–{result.high} ({lo:.1f}–{hi:.1f}%)"
+            lines.append(f"<b>{name}</b>&nbsp; {amount}"
+                         f"&nbsp; · &nbsp;<span style='color:#e8a13a'>{result.ko_text()}</span>")
+            odds = ", ".join(f"{n} hit{'s' if n > 1 else ''}: {c:.0%}" for n, c in enumerate(result.chances, 1))
+            tip = f"{name}: chance to KO within {odds}"
+            if result.notes:
+                tip += "\nBetween hits: " + ", ".join(result.notes)
+            tips.append(tip)
+        self.summary.setText("<br>".join(lines) if self.target is not None else "")
+        self.summary.setToolTip("\n".join(tips))
 
     def set_hp(self, hp: int) -> None:
         """Change current HP. If the max HP changes later (e.g. a new level), the HP keeps
@@ -560,8 +622,8 @@ WEATHER_TIP = "Weather (Weather Ball, Solar Beam, Swift Swim / Chlorophyll...)"
 class InfoPanel(QFrame):
     """The space between the two teams: the damage calculator.
 
-    Under the title is the field: your side's screens and Tailwind on the left, the
-    weather and Trick Room in the middle, the foe's on the right. They're set by hand and
+    The top row is the field: your side's screens and Tailwind on the left, the weather,
+    Trick Room and who moves first in the middle, the foe's on the right. They're set by hand and
     cleared when a battle starts or ends. When a Pokémon with a weather ability (Drizzle,
     Drought...) comes out in battle, the weather is set for it.
     """
@@ -570,17 +632,11 @@ class InfoPanel(QFrame):
         super().__init__()
         self.setObjectName("infopanel")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(12, 6, 12, 6)
+        outer.setContentsMargins(12, 4, 12, 4)
         outer.setSpacing(4)
-        header = QHBoxLayout()
-        header.addWidget(QLabel("DAMAGE CALCULATOR", objectName="section"))
-        header.addStretch()
         self.speed = QLabel(objectName="speed")      # which side moves first
 
-        header.addWidget(self.speed)
-        outer.addLayout(header)
-
-        # [Reflect][Light Screen][Tailwind]   Weather [None v] [Trick Room]   [Tailwind][Light Screen][Reflect]
+        # [Reflect][Light Screen][Tailwind]  Weather [None v] [Trick Room]  Speed ...  [Tailwind][Light Screen][Reflect]
         self.field = Field()
         self._field_battle = None        # the battle id the field was set during (None = not in battle)
         self._out = {"you": None, "foe": None}   # who each side had out last update, to spot switch-ins
@@ -612,6 +668,8 @@ class InfoPanel(QFrame):
                 self.trick_room.setToolTip("Trick Room: slower Pokémon move first")
                 self.trick_room.clicked.connect(lambda on: self._set_field(None, "trick_room", on))
                 field_row.addWidget(self.trick_room)
+                field_row.addSpacing(12)
+                field_row.addWidget(self.speed)
         outer.addLayout(field_row)
 
         columns = QHBoxLayout()          # the two sides, side by side
@@ -642,8 +700,8 @@ class InfoPanel(QFrame):
     def _sides_changed(self) -> None:
         """Either side's Pokémon (or the field) changed: each side's moves now hit a
         different target, and the speed comparison may flip."""
-        self.you.set_target(self.foe.subject(), self.foe.stages(), self.field)
-        self.foe.set_target(self.you.subject(), self.you.stages(), self.field)
+        self.you.set_target(self.foe.subject(), self.foe.stages(), self.field, self.foe.types())
+        self.foe.set_target(self.you.subject(), self.you.stages(), self.field, self.you.types())
         self._show_speed()
 
     def _show_speed(self) -> None:

@@ -56,6 +56,27 @@ def test():
     team = [dataclasses.replace(t, stats=dict(t.stats)) for t in twins]
     hp.apply(bytes(ram), [[], team], (None, 1))
     assert [m.hp for m in team] == [37, 11, 37], [m.hp for m in team]
+
+    # a twin KO'd, the next twin comes out: the new one must not show the fainted one's 0 HP.
+    # RAM holds two battle copies with the twins' shared PID: a leftover copy (lower in memory)
+    # that keeps the fainted twin's 0 HP, and the live slot, which the new twin overwrites.
+    ram = bytearray(0x1000)
+    leftover, live = 0x100, 0x400
+    for o in (leftover, live):
+        struct.pack_into("<H", ram, o + BM_SPECIES, geo.species_id)
+        struct.pack_into("<I", ram, o + BM_PID, geo.pid)
+    def poll(leftover_hp, live_hp, active):
+        struct.pack_into("<iI", ram, leftover + BM_HP, leftover_hp, 37)
+        struct.pack_into("<iI", ram, live + BM_HP, live_hp, 37)
+        team = [dataclasses.replace(t, stats=dict(t.stats)) for t in twins]
+        hp.apply(bytes(ram), [[], team], (None, active))
+        return [m.hp for m in team]
+    hp = BattleHP()
+    poll(37, 37, 0)                                          # first poll
+    assert poll(37, 20, 0) == [20, 37, 37]                   # twin 1 takes a hit
+    assert poll(0, 0, 0) == [0, 37, 37]                      # twin 1 faints
+    assert poll(0, 37, 1) == [0, 37, 37]                     # twin 2 comes out at full HP
+    assert poll(0, 30, 1) == [0, 30, 37]                     # and takes a hit
     print("All battle tests passed.")
 
 
