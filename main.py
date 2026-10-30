@@ -46,7 +46,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE)
     win = MainWindow(source)
-    win.resize(1000, 800)
+    win.resize(1280, 720)
     win.show()
     sys.exit(app.exec())
 

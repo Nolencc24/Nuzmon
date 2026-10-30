@@ -2,20 +2,72 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QVBoxLayout
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QValidator
+from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout, QLabel,
+                               QLineEdit, QProgressBar, QVBoxLayout)
 
-from tracker.game.decoder import NATURES, Pokemon
+from tracker.game import gamedata
+from tracker.game.decoder import Pokemon
+from tracker.game.stats import (EV_MAX, EV_TOTAL_MAX, IV_MAX, hp_from_percent, hp_percent, nature_effect,
+                                status_kind)
 
 DISPLAY_ORDER = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]  # summary-screen order
-NATURE_STATS = ["Atk", "Def", "Spe", "SpA", "SpD"]          # order used by nature math
 
 
-def nature_effect(nature: str) -> tuple[str | None, str | None]:
-    """Returns (boosted stat, lowered stat), or (None, None) for neutral natures."""
-    n = NATURES.index(nature)
-    up, down = n // 5, n % 5
-    return (None, None) if up == down else (NATURE_STATS[up], NATURE_STATS[down])
+class BoundedIntValidator(QValidator):
+    """Whole numbers from low to high. Unlike QIntValidator, a keystroke that would go past
+    the limit is refused outright (QIntValidator lets you type e.g. 45 into a 0-31 box and
+    then silently ignores Enter)."""
+
+    def __init__(self, low: int, high: int, parent=None):
+        super().__init__(parent)
+        self.low, self.high = low, high
+
+    def validate(self, text: str, pos: int):
+        if text == "":
+            return QValidator.State.Intermediate
+        if not text.isdigit() or int(text) > self.high:
+            return QValidator.State.Invalid
+        if int(text) < self.low:
+            return QValidator.State.Intermediate      # e.g. "0" while heading for "07"
+        return QValidator.State.Acceptable
+
+
+class StatEdit(QLineEdit):
+    """A small numbers-only box (IVs, EVs, HP). Emits committed(value) when you finish editing
+    and the value actually changed. Live updates don't overwrite it while you're typing."""
+
+    committed = Signal(int)
+
+    def __init__(self, maximum: int, minimum: int = 0):
+        super().__init__(objectName="statedit")
+        self.setValidator(BoundedIntValidator(minimum, maximum, self))
+        self.setAlignment(Qt.AlignRight)
+        self.setFixedWidth(38)
+        self.setFixedHeight(18)          # short, so the big card stays compact
+        self._value = 0
+        self._typing = False          # True from your first keystroke until you finish
+        self.textEdited.connect(lambda _text: setattr(self, "_typing", True))
+        self.editingFinished.connect(self._commit)
+
+    def set_maximum(self, maximum: int):
+        """Change the highest value you can type (e.g. max HP)."""
+        self.validator().high = maximum
+
+    def show_value(self, value: int):
+        self._value = value
+        if not self._typing:
+            self.setText(str(value))
+
+    def _commit(self):
+        self._typing = False
+        text = self.text()
+        if not text or int(text) == self._value:
+            self.setText(str(self._value))      # empty or unchanged: put the value back
+            return
+        self._value = int(text)
+        self.committed.emit(self._value)
 
 
 class Card(QFrame):
@@ -23,17 +75,28 @@ class Card(QFrame):
 
     wide=True lays the card out in three columns (summary | stats | moves) instead of
     one tall column, which is how the lead Pokémon is shown.
+    editable=True makes the IVs (0-31) and EVs (0-252) editable; changes are reported
+    with stat_edited("iv" or "ev", stat name, value). It also makes current HP editable,
+    as a number or as a percentage; both are reported as hp_edited(new HP). The level is
+    editable too, reported as level_edited(level). The nature and status become searchable
+    pickers, reported as nature_edited(nature name) and status_edited(one of stats.STATUSES).
     """
 
-    def __init__(self, wide: bool = False):
+    level_edited = Signal(int)
+    stat_edited = Signal(str, str, int)
+    hp_edited = Signal(int)
+    nature_edited = Signal(str)
+    status_edited = Signal(str)
+
+    def __init__(self, wide: bool = False, editable: bool = False):
         super().__init__()
         self.setObjectName("card")
         self.setMinimumWidth(270)
         outer = QHBoxLayout(self) if wide else QVBoxLayout(self)
-        outer.setContentsMargins(12, 10, 12, 10)
+        outer.setContentsMargins(12, 8, 12, 8)
         outer.setSpacing(18 if wide else 6)
         lay = QVBoxLayout()          # column 1: name, HP, nature/ability
-        lay.setSpacing(6)
+        lay.setSpacing(5)
         outer.addLayout(lay, 3 if wide else 0)
 
         top = QHBoxLayout()
@@ -42,16 +105,60 @@ class Card(QFrame):
         top.addWidget(self.name)
         top.addStretch()
         top.addWidget(self.level)
+        if editable:                 # Lv [ 14 ]
+            self.level_edit = StatEdit(100, minimum=1)
+            self.level_edit.setToolTip("Level (stats scale with it)")
+            self.level_edit.committed.connect(self.level_edited.emit)
+            top.addWidget(self.level_edit)
+        else:
+            self.level_edit = None
         lay.addLayout(top)
 
         self.hpbar = QProgressBar(textVisible=False)
+        self.hpbar.setFixedHeight(8)     # as drawn (otherwise it reserves 18px)
         self.hptext = QLabel(objectName="dim")
         lay.addWidget(self.hpbar)
-        lay.addWidget(self.hptext)
+        if editable:
+            # HP [ 23 ] / 40   [ 58 ] %
+            self.hp_edit, self.pct_edit = StatEdit(999), StatEdit(100)
+            self.hp_edit.setToolTip("Current HP")
+            self.pct_edit.setToolTip("Current HP as a percentage of max HP")
+            self.hp_edit.committed.connect(self.hp_edited.emit)
+            self.pct_edit.committed.connect(self._on_percent)
+            self.hpmax = QLabel(objectName="dim")
+            self.status = StatusPicker()
+            self.status.setToolTip("Status condition. Search by name or short form, e.g. psn, tox, par")
+            self.status.value_changed.connect(lambda _label: self.status_edited.emit(self.status.status()))
+            hp_row = QHBoxLayout()
+            hp_row.setSpacing(4)
+            self.hp_widgets = [QLabel("HP", objectName="dim"), self.hp_edit, self.hpmax,
+                               self.pct_edit, QLabel("%", objectName="dim")]
+            for w in self.hp_widgets:
+                hp_row.addWidget(w)
+            hp_row.addStretch()
+            lay.addLayout(hp_row)
+            self.hp_widgets += [self.level_edit, self.status]   # shown/hidden along with the HP row
+        else:
+            self.hp_edit = self.status = None
+            self.hp_widgets = [self.hptext]
+            lay.addWidget(self.hptext)
 
-        self.info = QLabel(objectName="dim")
+        self.info = QLabel(objectName="dim")     # "Nature · Ability" (just the ability if editable)
         self.info.setWordWrap(True)
-        lay.addWidget(self.info)
+        if editable:
+            # the nature and status pickers each get a full row, so their labels fit
+            self.nature = NaturePicker()
+            self.nature.setToolTip("Nature (stats update with it). Search by name, or by stat, e.g. +Atk or -SpA")
+            self.nature.value_changed.connect(lambda _label: self.nature_edited.emit(self.nature.nature()))
+            for picker in (self.nature, self.status):
+                picker.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+                picker.setMinimumContentsLength(12)
+                lay.addWidget(picker)
+            self.hp_widgets.append(self.nature)   # shown/hidden along with the HP row
+        else:
+            self.nature = None
+        if not wide:                 # (wide cards put it under the moves, to stay short)
+            lay.addWidget(self.info)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
@@ -63,24 +170,36 @@ class Card(QFrame):
             grid.addWidget(lbl, 0, c)
             self.cells["header"].append(lbl)
         for r, stat in enumerate(DISPLAY_ORDER, start=1):
-            row = [QLabel(stat, objectName="cell")] + [QLabel(objectName="cell") for _ in range(3)]
+            if editable:
+                iv, ev = StatEdit(IV_MAX), StatEdit(EV_MAX)
+                iv.committed.connect(lambda v, stat=stat: self.stat_edited.emit("iv", stat, v))
+                ev.committed.connect(lambda v, stat=stat: self.stat_edited.emit("ev", stat, v))
+                iv.setToolTip(f"{stat} IV (0-{IV_MAX})")
+                ev.setToolTip(f"{stat} EVs (0-{EV_MAX})")
+            else:
+                iv, ev = QLabel(objectName="cell"), QLabel(objectName="cell")
+            row = [QLabel(stat, objectName="cell"), QLabel(objectName="cell"), iv, ev]
             for c, lbl in enumerate(row):
                 if c:
-                    lbl.setAlignment(Qt.AlignRight)
+                    lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
                 grid.addWidget(lbl, r, c)
             self.cells[stat] = row
         self.extra = QLabel(objectName="dim")
         self.extra.setWordWrap(True)
         self.moves = QLabel(objectName="cell")
         if wide:
+            self.extra.setWordWrap(False)   # one line: "EVs 0/510 · Hidden Power Bug 42"
             lay.addWidget(self.extra)
             lay.addStretch()
-            col2, col3 = QVBoxLayout(), QVBoxLayout()   # column 2: stat grid, column 3: moves
+            # column 2: stat grid; column 3: moves, then the ability (kept out of column 1
+            # so the card is no taller than the stat grid)
+            col2, col3 = QVBoxLayout(), QVBoxLayout()
             col2.addLayout(grid)
             col2.addStretch()
             col3.addWidget(QLabel("Moves", objectName="dim"))
             col3.addWidget(self.moves)
             col3.addStretch()
+            col3.addWidget(self.info)
             outer.addLayout(col2, 3)
             outer.addLayout(col3, 2)
         else:
@@ -91,8 +210,9 @@ class Card(QFrame):
         self.show_mon(None)
 
     def show_mon(self, m: Pokemon | None):
+        self.mon = m
         has = m is not None
-        for w in (self.hpbar, self.hptext, self.info, self.extra, self.moves):
+        for w in (self.hpbar, *self.hp_widgets, self.info, self.extra, self.moves):
             w.setVisible(has)
         for row in self.cells.values():
             for lbl in row:
@@ -106,7 +226,11 @@ class Card(QFrame):
             self.name.setText("Egg")
         else:
             self.name.setText(f"{m.species}{'  ★' if m.shiny else ''}  {m.gender}")
-        self.level.setText(f"Lv {m.level}" if m.level is not None else "")
+        if self.level_edit is not None:
+            self.level.setText("Lv")
+            self.level_edit.show_value(m.level or 1)
+        else:
+            self.level.setText(f"Lv {m.level}" if m.level is not None else "")
 
         hp, mx = m.hp or 0, m.max_hp or 1
         pct = hp / mx
@@ -114,30 +238,65 @@ class Card(QFrame):
         self.hpbar.setRange(0, mx)
         self.hpbar.setValue(hp)
         self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
-        self.hptext.setText(f"HP {hp} / {mx}" + ("" if m.status == "OK" else f"   ·   {m.status}"))
-        self.info.setText(f"{m.nature} · {m.ability}")
+        status = "" if m.status == "OK" else f"   ·   {m.status}"
+        if self.hp_edit is not None:
+            self.hp_edit.set_maximum(mx)
+            self.hp_edit.show_value(hp)
+            self.hpmax.setText(f"/ {mx}")
+            self.pct_edit.show_value(hp_percent(hp, mx))
+            if not self.status.lineEdit().isModified():    # don't clobber a search in progress
+                self.status.set_status(m.status, emit=False)
+            self.status.setToolTip(f"Status condition: {m.status}. Search by name or short form, e.g. psn, tox, par")
+        else:
+            self.hptext.setText(f"HP {hp} / {mx}" + status)
+        if self.nature is not None:
+            if not self.nature.lineEdit().isModified():   # don't clobber a search in progress
+                self.nature.set_nature(m.nature, emit=False)
+            self.info.setText(f"Ability: {m.ability}")
+        else:
+            self.info.setText(f"{m.nature} · {m.ability}")
 
         up, down = nature_effect(m.nature)
         for stat in DISPLAY_ORDER:
             name, val, iv, ev = self.cells[stat]
             name.setStyleSheet("color:#ff7a7a" if stat == up else "color:#7ab0ff" if stat == down else "")
             val.setText(str(m.stats.get(stat, "?")))
-            iv.setText(str(m.ivs[stat]))
+            for box, value in ((iv, m.ivs[stat]), (ev, m.evs[stat])):
+                if isinstance(box, StatEdit):
+                    box.show_value(value)
+                else:
+                    box.setText(str(value))
             iv.setStyleSheet("color:#3ccf6e" if m.ivs[stat] == 31 else "color:#eb5757" if m.ivs[stat] == 0 else "")
-            ev.setText(str(m.evs[stat]))
 
         hp_type, hp_pow = m.hidden_power
-        self.extra.setText(f"EVs {sum(m.evs.values())}/510  ·  Hidden Power {hp_type} {hp_pow}")
+        total = sum(m.evs.values())
+        over = f"<span style='color:#eb5757'>{total}/{EV_TOTAL_MAX} (over the limit)</span>" \
+            if total > EV_TOTAL_MAX else f"{total}/{EV_TOTAL_MAX}"
+        self.extra.setText(f"EVs {over}  ·  Hidden Power {hp_type} {hp_pow}")
         self.moves.setText("\n".join(f"{mv:<16}{pp:>3} PP" for mv, pp in m.moves) or "(no moves)")
+
+    def _on_percent(self, pct: int):
+        m = self.mon
+        if m is None:
+            return
+        hp = hp_from_percent(pct, m.max_hp or 1)
+        if hp == m.hp:
+            self.show_mon(m)          # rounds to the HP it already has: show the real percentage
+        else:
+            self.hp_edited.emit(hp)
 
 
 class Row(QFrame):
-    """A thin one-line summary for party slots 2-6: name, level, HP bar, status."""
+    """A thin one-line summary for party slots 2-6: name, level, HP bar, status.
+    Clicking it emits clicked(Pokémon shown)."""
+
+    clicked = Signal(object)
 
     def __init__(self):
         super().__init__()
         self.setObjectName("row")
-        self.setFixedHeight(34)
+        self.mon = None
+        self.setFixedHeight(28)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 4, 10, 4)
         lay.setSpacing(10)
@@ -160,7 +319,11 @@ class Row(QFrame):
         self.show_mon(None)
 
     def show_mon(self, m: Pokemon | None):
+        self.mon = m
         has = m is not None
+        clickable = has and not m.is_egg
+        self.setCursor(Qt.PointingHandCursor if clickable else Qt.ArrowCursor)
+        self.setToolTip("Click to show this Pokémon in the big card and the calculator" if clickable else "")
         for w in (self.hpbar, self.hptext, self.status):
             w.setVisible(has)
         if not has:
@@ -177,3 +340,162 @@ class Row(QFrame):
         self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
         self.hptext.setText(f"{hp}/{mx}")
         self.status.setText("" if m.status == "OK" else m.status)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.mon is not None and not self.mon.is_egg:
+            self.clicked.emit(self.mon)
+        super().mousePressEvent(event)
+
+
+class SearchPicker(QComboBox):
+    """A searchable dropdown: type any part of a name to filter the list.
+
+    Only names from the list are accepted; anything else snaps back to the last valid
+    choice (or, if exactly one name contains the text, that one is picked).
+    Emits value_changed(name) when the selection changes ("" = nothing selected).
+    """
+
+    value_changed = Signal(str)
+
+    def __init__(self, names: list[str], placeholder: str = "Search…", allow_empty: bool = True):
+        super().__init__()
+        self.names = list(names)
+        self._lookup = {n.lower(): n for n in self.names}
+        self.allow_empty = allow_empty
+        self.setEditable(True)
+        self.setInsertPolicy(QComboBox.NoInsert)       # typing never adds new entries
+        self.setMaxVisibleItems(14)
+        if allow_empty:
+            self.addItem("")
+        self.addItems(self.names)
+
+        completer = QCompleter(self.model(), self)
+        completer.setFilterMode(Qt.MatchContains)      # match anywhere in the name
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.setMaxVisibleItems(14)
+        self.setCompleter(completer)
+        self.lineEdit().setPlaceholderText(placeholder)
+
+        self._current = ""
+        self.lineEdit().editingFinished.connect(self._commit)
+        self.activated.connect(lambda _index: self._commit())
+        completer.activated.connect(lambda text: self._commit(text))
+
+    def _commit(self, text: str | None = None):
+        text = (self.currentText() if text is None else text).strip()
+        name = self._lookup.get(text.lower(), "")
+        if text and not name:
+            matches = [n for n in self.names if text.lower() in n.lower()]
+            name = matches[0] if len(matches) == 1 else ""
+        if (text and not name) or (not name and not self.allow_empty):
+            self.setEditText(self._current)            # not a valid choice: revert
+            return
+        self._select(name, emit=True)
+
+    def _select(self, name: str, emit: bool):
+        self.blockSignals(True)
+        self.setCurrentIndex(max(self.findText(name, Qt.MatchFixedString), 0))
+        self.setEditText(name)
+        self.blockSignals(False)
+        if name != self._current:
+            self._current = name
+            if emit:
+                self.value_changed.emit(name)
+
+    def set_value(self, name: str, emit: bool = True):
+        """Select a name from the list ("" for none). emit=False updates silently."""
+        self._select(self._lookup.get((name or "").lower(), ""), emit)
+
+    def value(self) -> str:
+        return self._current
+
+
+class MovePicker(SearchPicker):
+    """Searchable selector over every Gen 4 move. Emits move_changed(move dict or None)."""
+
+    move_changed = Signal(object)
+
+    def __init__(self):
+        super().__init__(gamedata.all_move_names(), "Search moves…")
+        self.value_changed.connect(lambda _name: self.move_changed.emit(self.move()))
+
+    def set_move(self, name: str):
+        self.set_value(name)
+
+    def move(self) -> dict | None:
+        """The selected move's data (type, power, category...), or None."""
+        return gamedata.move_by_name(self._current) if self._current else None
+
+
+class SpeciesPicker(SearchPicker):
+    """Searchable selector over every Gen 4 species and stat-changing form."""
+
+    def __init__(self):
+        super().__init__(gamedata.all_species_names(), "Search Pokémon…", allow_empty=False)
+
+
+class ItemPicker(SearchPicker):
+    """Searchable selector over the held items. Empty = holding nothing."""
+
+    def __init__(self):
+        super().__init__(gamedata.all_item_names(), "No item")
+
+
+class AbilityPicker(SearchPicker):
+    """Searchable selector over every Gen 4 ability."""
+
+    def __init__(self):
+        super().__init__(gamedata.all_ability_names(), "Search abilities…", allow_empty=False)
+
+
+def nature_label(nature: str) -> str:
+    """"Adamant (+Atk, -SpA)", or just "Hardy" for natures that change nothing."""
+    up, down = nature_effect(nature)
+    return nature if up is None else f"{nature} (+{up}, -{down})"
+
+
+class NaturePicker(SearchPicker):
+    """Searchable selector over the 25 natures, shown as "Adamant (+Atk, -SpA)".
+
+    Search by name ("adam") or by what the nature changes: "+Atk" lists the natures that
+    raise Attack, "-SpA" the ones that lower Sp. Atk, "+Atk, -SpA" finds Adamant.
+    """
+
+    def __init__(self):
+        super().__init__([nature_label(n) for n in gamedata.NATURES], "Search natures…", allow_empty=False)
+
+    def set_nature(self, nature: str, emit: bool = True):
+        self.set_value(nature_label(nature), emit)
+
+    def nature(self) -> str:
+        """The selected nature's plain name, e.g. "Adamant"."""
+        return self._current.split(" (")[0]
+
+
+# how each of stats.STATUSES is shown (and searched) in the status picker
+STATUS_LABELS = {
+    "OK": "Healthy",
+    "Poisoned": "Poisoned (PSN)",
+    "Toxic": "Badly Poisoned (TOX, Toxic)",
+    "Burned": "Burned (BRN)",
+    "Paralyzed": "Paralyzed (PAR)",
+    "Asleep": "Asleep (SLP)",
+    "Frozen": "Frozen (FRZ)",
+}
+
+
+class StatusPicker(SearchPicker):
+    """Searchable selector over the status conditions: type the name or the short form
+    ("psn", "tox", "par"...)."""
+
+    def __init__(self):
+        super().__init__(list(STATUS_LABELS.values()), "Search status…", allow_empty=False)
+        self._by_label = {label: status for status, label in STATUS_LABELS.items()}
+
+    def set_status(self, status: str | None, emit: bool = True):
+        self.set_value(STATUS_LABELS[status_kind(status)], emit)
+
+    def status(self) -> str:
+        """The selected status, one of stats.STATUSES ("OK" = healthy)."""
+        return self._by_label.get(self._current, "OK")

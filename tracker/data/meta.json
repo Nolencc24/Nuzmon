@@ -1,0 +1,14 @@
+{
+ "source": "Pokemon Showdown via @pkmn/dex + @pkmn/data",
+ "generation": 4,
+ "versions": {
+  "@pkmn/dex": "0.10.11",
+  "@pkmn/data": "0.10.11"
+ },
+ "counts": {
+  "moves": 467,
+  "species": 558,
+  "abilities": 123,
+  "items": 210
+ }
+}

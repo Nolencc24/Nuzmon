@@ -12,7 +12,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 
-from .names import ABILITIES, MOVES, NATURES, SPECIES
+from .gamedata import NATURES, ability_name, item_name, move_name, species_name
 
 PARTY_SIZE = 236   # 0xEC
 STORED_SIZE = 136  # 0x88
@@ -100,12 +100,20 @@ class Pokemon:
     evs: dict
     ivs: dict
     moves: list            # [(name, pp), ...]
+    move_ids: list         # in-game move IDs, same order as moves (look up with gamedata.move)
     is_egg: bool
     nature: str
     shiny: bool
     gender: str
     hidden_power: tuple    # (type, power)
     pokerus: int
+    form: int = 0                  # alternate form index (Unown letter, Rotom form, ...)
+    met_location: int = 0          # in-game location ID where it was caught/received
+    met_level: int = 0             # 0 for Pokémon hatched from eggs
+    met_date: tuple | None = None  # (year, month, day)
+    egg_location: int = 0
+    ball: int = 0                  # item ID of the Poké Ball
+    held_item_name: str | None = None
     # party / battle section (None for 136-byte box data)
     level: int | None = None
     status: str | None = None
@@ -113,6 +121,20 @@ class Pokemon:
     max_hp: int | None = None
     stats: dict = field(default_factory=dict)
     in_battle: bool = False   # True when HP/status come from the live in-battle copy
+    preview: bool = False     # True for a made-up Pokémon (picked in the calculator, not in the game)
+
+
+def ivs_from_word(iv_word: int) -> dict:
+    """The packed 32-bit IV value -> {"HP": .., "Atk": .., ...} (5 bits each, memory order)."""
+    return {s: (iv_word >> (5 * i)) & 31 for i, s in enumerate(STAT_NAMES)}
+
+
+def hidden_power_of(ivs: dict) -> tuple:
+    """(type, power) of Hidden Power for these IVs (Gen 3-5 formula, power 30-70)."""
+    # bit order HP, Atk, Def, Spe, SpA, SpD (same as memory order)
+    t = sum((ivs[s] & 1) << i for i, s in enumerate(STAT_NAMES))
+    p = sum(((ivs[s] >> 1) & 1) << i for i, s in enumerate(STAT_NAMES))
+    return HP_TYPES[t * 15 // 63], p * 40 // 63 + 30
 
 
 def _status_text(b: int) -> str:
@@ -123,10 +145,6 @@ def _status_text(b: int) -> str:
         if b & bit:
             return name
     return "OK"
-
-
-def _name(table, idx):
-    return table[idx] if 0 <= idx < len(table) else f"#{idx}"
 
 
 def parse(raw: bytes, already_decrypted: bool = False) -> Pokemon | None:
@@ -149,27 +167,36 @@ def parse(raw: bytes, already_decrypted: bool = False) -> Pokemon | None:
 
     move_ids = struct.unpack_from("<4H", d, 0x28)
     pps = d[0x30:0x34]
-    moves = [(_name(MOVES, m), pp) for m, pp in zip(move_ids, pps) if m]
+    moves = [(move_name(m), pp) for m, pp in zip(move_ids, pps) if m]
 
     iv_word = struct.unpack_from("<I", d, 0x38)[0]
-    ivs = {s: (iv_word >> (5 * i)) & 31 for i, s in enumerate(STAT_NAMES)}
+    ivs = ivs_from_word(iv_word)
 
     flags = d[0x40]
     gender = "—" if flags & 0x04 else ("F" if flags & 0x02 else "M")
 
     shiny = (tid ^ sid ^ (pid >> 16) ^ (pid & 0xFFFF)) < 8
 
-    # Hidden Power: bit order HP, Atk, Def, Spe, SpA, SpD (same as memory order)
-    t = sum((ivs[s] & 1) << i for i, s in enumerate(STAT_NAMES))
-    p = sum(((ivs[s] >> 1) & 1) << i for i, s in enumerate(STAT_NAMES))
-    hidden_power = (HP_TYPES[t * 15 // 63], p * 40 // 63 + 30)
+    hidden_power = hidden_power_of(ivs)
+
+    # Platinum/HGSS store egg/met locations at 0x44/0x46; Diamond/Pearl used 0x7E/0x80.
+    # Same fallback PKHeX uses: take the newer field when it's set.
+    egg_new, met_new = struct.unpack_from("<HH", d, 0x44)
+    egg_old, met_old = struct.unpack_from("<HH", d, 0x7E)
+    egg_loc, met_loc = egg_new or egg_old, met_new or met_old
+    year, month, day = d[0x7B:0x7E]
 
     mon = Pokemon(
-        pid=pid, species_id=species_id, species=_name(SPECIES, species_id),
+        pid=pid, species_id=species_id, species=species_name(species_id),
         held_item=item, tid=tid, sid=sid, exp=exp, friendship=d[0x14],
-        ability=_name(ABILITIES, d[0x15]), evs=evs, ivs=ivs, moves=moves,
+        ability=ability_name(d[0x15]), evs=evs, ivs=ivs, moves=moves,
+        move_ids=[m for m in move_ids if m],
         is_egg=bool(iv_word & (1 << 30)), nature=NATURES[pid % 25], shiny=shiny,
         gender=gender, hidden_power=hidden_power, pokerus=d[0x82],
+        form=flags >> 3, met_location=met_loc, met_level=d[0x84] & 0x7F,
+        met_date=(2000 + year, month, day) if month else None, egg_location=egg_loc,
+        ball=max(d[0x86], d[0x83]),   # HGSS ball field vs older one; PKHeX shows the higher
+        held_item_name=item_name(item),
     )
 
     if len(d) >= PARTY_SIZE:

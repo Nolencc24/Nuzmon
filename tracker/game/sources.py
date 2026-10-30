@@ -3,7 +3,11 @@ Data sources for the window. Each has a poll() method returning
 (data or None, status message or None); data is None when nothing changed.
 
 data = {"meta": {...}, "party": [Pokemon|None x6], "enemy": [Pokemon|None x6],
-        "party_active": index or None, "enemy_active": index or None}
+        "party_active": index or None, "enemy_active": index or None,
+        "battle": None outside battle, else {"id": int, "you": Battler, "foe": Battler}}
+
+"battle" (memory mode only) comes straight from the battle data, so it also covers wild
+Pokémon, and its "id" goes up by one for each new battle (handy for logging encounters).
 """
 
 from __future__ import annotations
@@ -67,13 +71,15 @@ class MemorySource:
         p0 = snap["base"] + PARTY_OFFSET - DS_RAM_START
         e0 = snap["base"] + ENEMY_OFFSET - DS_RAM_START
         skip = {o + i * PARTY_SIZE for o in (p0, e0) for i in range(6)}
-        self.battle.apply(snap["ram"], party + enemy, skip)
-        party_active, enemy_active = self.state.update(snap["ram"], party, enemy, self.battle)
+        state = self.state.update(snap["ram"], party, enemy, self.battle)
+        self.battle.apply(snap["ram"], [party, enemy], (state["party_active"], state["enemy_active"]), skip)
+        battle = state["battle"]
 
         # only redraw when something visible changed
         shown = (snap["base"], tuple(snap["party"]), tuple(snap["enemy"]),
                  tuple((m.hp, m.max_hp, m.status) if m else None for m in party + enemy),
-                 party_active, enemy_active)
+                 state["party_active"], state["enemy_active"],
+                 battle and (battle["id"], battle["you"], battle["foe"]))
         if shown == self.last_shown:
             return None, None
         self.last_shown = shown
@@ -82,8 +88,9 @@ class MemorySource:
                      "source": f"DeSmuME pid {self.mem.pid}"},
             "party": party,
             "enemy": enemy,
-            "party_active": party_active,   # index of the Pokémon you have out, or None
-            "enemy_active": enemy_active,   # index of the foe's Pokémon, or None
+            "party_active": state["party_active"],   # index of the Pokémon you have out, or None
+            "enemy_active": state["enemy_active"],   # index of the foe's Pokémon, or None
+            "battle": battle,
         }
         return data, None
 

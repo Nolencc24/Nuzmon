@@ -32,12 +32,12 @@ class MainWindow(QMainWindow):
     def __init__(self, source):
         super().__init__()
         self.source = source
-        self.setWindowTitle("SoulSilver Tracker")
+        self.setWindowTitle("Nuzmon")
 
         root = QWidget()
         lay = QVBoxLayout(root)
-        lay.setContentsMargins(12, 10, 12, 8)
-        lay.setSpacing(8)
+        lay.setContentsMargins(12, 6, 12, 6)
+        lay.setSpacing(6)
 
         self.tabs = QTabWidget()
         self.pages = []

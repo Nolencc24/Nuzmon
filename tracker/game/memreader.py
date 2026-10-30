@@ -264,8 +264,12 @@ def diagnose(pid: int | None = None) -> None:
     except NotFound as e:
         print(e)
         return
-    proc = psutil.Process(pid)
-    print(f"DeSmuME process: {proc.name()} (pid {pid}), exe: {proc.exe()}")
+    try:
+        proc = psutil.Process(pid)
+        print(f"DeSmuME process: {proc.name()} (pid {pid}), exe: {proc.exe()}")
+    except psutil.Error as e:
+        print(f"Can't access process {pid}: {e}")
+        return
     try:
         mem = DesmumeMemory(pid)
     except NotFound as e:
