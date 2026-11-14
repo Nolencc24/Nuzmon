@@ -26,7 +26,7 @@ Regenerate the Gen 4 reference data (needs Node.js): `cd tools/build_data && npm
 
 ## Architecture
 
-**Data flow:** `main.py` picks a *source* → `MainWindow` polls it every 250 ms → passes the result to every page that has `update_data(data)`. Pages never touch the emulator themselves.
+**Data flow:** `main.py` picks a *source* → `MainWindow` polls it every 250 ms → passes the result to every page that has `update_data(data)`, and to the `PartyStrip` (`widgets.py`: your six party slots, shown in the tab bar's corner). Pages never touch the emulator themselves.
 
 - **Sources** (`tracker/game/sources.py`): `MemorySource` (default), `FileSource` (Lua dump or `--demo`, which writes a fake dump built from `samples.py`). Both return `(data or None, status message or None)`, with `data is None` meaning "nothing changed". `MemorySource` builds a "shown" tuple and returns None unless something visible changed, so pages only redraw on real changes.
 - **`data` dict shape** (documented at the top of `sources.py` and in the README's "Adding a page"): `party`/`enemy` (6 × `Pokemon|None`), `party_active`/`enemy_active` (index or None), `battle` (None, or `{"id", "you", "foe"}` with live `Battler`s, which covers wild Pokémon; `id` goes up by one per battle), and `meta`. `battle` only exists in memory mode.

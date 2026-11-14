@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import (QComboBox, QCompleter, QFrame, QGridLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QProgressBar, QVBoxLayout)
+                               QLineEdit, QProgressBar, QVBoxLayout, QWidget)
 
 from tracker.game import gamedata
 from tracker.game.decoder import Pokemon
@@ -284,6 +284,86 @@ class Card(QFrame):
             self.show_mon(m)          # rounds to the HP it already has: show the real percentage
         else:
             self.hp_edited.emit(hp)
+
+
+STATUS_TAGS = {"Poisoned": "PSN", "Toxic": "TOX", "Burned": "BRN", "Paralyzed": "PAR",
+               "Asleep": "SLP", "Frozen": "FRZ"}
+
+
+def hp_color(hp: int, max_hp: int) -> str:
+    """Green above half HP, yellow above a fifth, red below."""
+    pct = hp / (max_hp or 1)
+    return "#3ccf6e" if pct > 0.5 else "#f2c94c" if pct > 0.2 else "#eb5757"
+
+
+class PartySlot(QFrame):
+    """One of the six party slots next to the tabs: name (and status), with a thin HP bar."""
+
+    WIDTH = 92
+
+    def __init__(self):
+        super().__init__(objectName="partyslot")
+        self.setFixedWidth(self.WIDTH)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(6, 2, 6, 3)
+        lay.setSpacing(2)
+        top = QHBoxLayout()
+        top.setSpacing(3)
+        self.name = QLabel(objectName="slotname")
+        self.tag = QLabel(objectName="slottag")
+        top.addWidget(self.name, 1)
+        top.addWidget(self.tag)
+        lay.addLayout(top)
+        self.hpbar = QProgressBar(textVisible=False, objectName="slothp")
+        self.hpbar.setFixedHeight(3)
+        lay.addWidget(self.hpbar)
+        self.show_mon(None)
+
+    def show_mon(self, m: Pokemon | None, out: bool = False):
+        """out=True outlines the slot: it's the Pokémon out in battle."""
+        self.setStyleSheet("QFrame#partyslot { border-color: #3a6ff7; }" if out else "")
+        if m is None:
+            self.name.setText("—")
+            self.name.setStyleSheet("color:#4a505c")
+            self.tag.setText("")
+            self.hpbar.setVisible(False)
+            self.setToolTip("Empty party slot")
+            return
+        name = "Egg" if m.is_egg else m.species
+        status = STATUS_TAGS.get((m.status or "OK").split(" (")[0], "")
+        hp, mx = m.hp or 0, m.max_hp or 1
+        fainted = not m.is_egg and m.hp is not None and hp == 0
+        self.tag.setText("FNT" if fainted else status)
+        # shorten long names so the tag still fits ("Typhlosi…")
+        room = self.WIDTH - 14 - (self.tag.sizeHint().width() + 3 if self.tag.text() else 0)
+        self.name.setText(self.name.fontMetrics().elidedText(name, Qt.ElideRight, room))
+        self.name.setStyleSheet("color:#4a505c" if fainted else "")
+        self.hpbar.setVisible(not m.is_egg)
+        self.hpbar.setRange(0, mx)
+        self.hpbar.setValue(hp)
+        self.hpbar.setStyleSheet(f"QProgressBar::chunk {{ background: {hp_color(hp, mx)}; border-radius: 1px; }}")
+        tip = f"{name}  Lv {m.level}" if m.level is not None else name
+        if not m.is_egg:
+            tip += f"\nHP {hp} / {mx}" + ("" if m.status in (None, "OK") else f"  ·  {m.status}")
+        self.setToolTip(tip + ("\nOut in battle" if out else ""))
+
+
+class PartyStrip(QWidget):
+    """Your six party slots in a row (shown next to the window's tabs)."""
+
+    def __init__(self):
+        super().__init__()
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(12, 0, 0, 2)
+        lay.setSpacing(4)
+        self.slots = [PartySlot() for _ in range(6)]
+        for slot in self.slots:
+            lay.addWidget(slot)
+
+    def show_party(self, mons, active: int | None = None):
+        """mons: the 6 party slots (Pokémon or None). active: index of the one out in battle."""
+        for i, (slot, m) in enumerate(zip(self.slots, mons)):
+            slot.show_mon(m, out=i == active)
 
 
 class Row(QFrame):

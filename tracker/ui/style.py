@@ -13,6 +13,10 @@ QTabBar::tab { background: #22252c; color: #9aa3b5; padding: 5px 18px; min-width
                border-radius: 4px; margin-right: 4px; }
 QTabBar::tab:hover { background: #2c3039; }
 QTabBar::tab:selected { background: #3a6ff7; color: white; }
+QFrame#partyslot { background: #1f2229; border: 1px solid #2c3039; border-radius: 4px; }
+QLabel#slotname { font-size: 11px; font-weight: 600; }
+QLabel#slottag { font-size: 10px; color: #e8a13a; }
+QProgressBar#slothp { background: #2c3039; border: none; border-radius: 1px; }
 QFrame#card { background: #1f2229; border: 1px solid #2c3039; border-radius: 8px; }
 QFrame#row  { background: #1f2229; border: 1px solid #2c3039; border-radius: 6px; }
 QFrame#row:hover { border-color: #3a6ff7; }

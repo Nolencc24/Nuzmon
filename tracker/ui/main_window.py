@@ -1,4 +1,5 @@
-"""The main window: a row of tabs, one page per tab, and a status bar.
+"""The main window: a row of tabs (with your party's six slots beside them), one page per
+tab, and a status bar.
 
 The window polls the data source once and hands the result to every page that has an
 update_data(data) method, so pages never read the emulator themselves.
@@ -9,11 +10,12 @@ needs game data, and add it to PAGES below.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import QLabel, QMainWindow, QTabWidget, QVBoxLayout, QWidget
 
 from tracker.ui.pages.battle_page import BattlePage
 from tracker.ui.pages.blank_page import BlankPage
+from tracker.ui.widgets import PartyStrip
 
 # (tab label, page class). Blank labels are fine for now.
 PAGES = [
@@ -45,6 +47,8 @@ class MainWindow(QMainWindow):
             page = page_class()
             self.tabs.addTab(page, label)
             self.pages.append(page)
+        self.party_strip = PartyStrip()                  # your party, beside the tabs
+        self.tabs.setCornerWidget(self.party_strip, Qt.TopRightCorner)
         lay.addWidget(self.tabs, 1)
 
         self.status = QLabel(objectName="dim")
@@ -65,6 +69,7 @@ class MainWindow(QMainWindow):
         for page in self.pages:
             if hasattr(page, "update_data"):
                 page.update_data(data)
+        self.party_strip.show_party(data["party"], data.get("party_active"))
 
         n_party = sum(m is not None for m in data["party"])
         n_enemy = sum(m is not None for m in data["enemy"])
