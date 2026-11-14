@@ -13,14 +13,51 @@ Pokémon, and its "id" goes up by one for each new battle (handy for logging enc
 from __future__ import annotations
 
 import os
+import struct
 import tempfile
 import time
 
+from . import gamedata
 from .battle import BattleHP, BattleState
-from .decoder import PARTY_SIZE, IncompleteDump, encrypt, parse, read_dump
+from .decoder import BOX_OPEN, PARTY_OPEN, PARTY_SIZE, STAT_NAMES, IncompleteDump, Pokemon, encrypt, parse, read_dump
 from .memreader import (DS_RAM_START, ENEMY_OFFSET, PARTY_OFFSET, DesmumeMemory,
                         NotFound, find_desmume_pid)
 from .samples import GEODUDE, SHINY_CUBONE, as_party
+from .stats import calc_stats
+
+
+def plausible(mon: Pokemon) -> bool:
+    """Does the level / HP / stats section make sense? It has no checksum, so a read that
+    catches the game halfway through re-encrypting it would otherwise show garbage: the
+    level must be 1-100, HP can't be over max HP, and every stat must be one the stat
+    formula can give for this species, level, IVs and nature (with any EVs from 0 to 255;
+    Gen 4 only recalculates stats on level up, so they can lag behind the EVs)."""
+    if mon.level is None or not 1 <= mon.level <= 100 or not mon.max_hp or mon.hp is None or mon.hp > mon.max_hp:
+        return False
+    if mon.is_egg:
+        return True
+    sp = gamedata.species(mon.species_id, mon.form)
+    if sp is None:
+        return False
+    low = calc_stats(sp["base_stats"], mon.ivs, dict.fromkeys(STAT_NAMES, 0), mon.level, mon.nature, mon.species_id)
+    high = calc_stats(sp["base_stats"], mon.ivs, dict.fromkeys(STAT_NAMES, 255), mon.level, mon.nature, mon.species_id)
+    return all(low[s] <= mon.stats.get(s, -1) <= high[s] for s in STAT_NAMES)
+
+
+def decode_live(raw: bytes) -> Pokemon | None:
+    """parse(), for bytes read from the running game. The game can be caught mid-way
+    through decrypting or re-encrypting a Pokémon, with its "decrypted" flags (0x04) out of
+    step with the data (it clears them before re-encrypting). So each way the two sections
+    could be locked is tried, starting with what the flags say, and the first reading that
+    passes the checksum and makes sense (plausible()) wins. None if none does."""
+    flags = struct.unpack_from("<H", raw, 4)[0]
+    for flip in (0, PARTY_OPEN, BOX_OPEN, PARTY_OPEN | BOX_OPEN):
+        attempt = bytearray(raw)
+        struct.pack_into("<H", attempt, 4, flags ^ flip)
+        mon = parse(bytes(attempt))
+        if mon is not None and plausible(mon):
+            return mon
+    return None
 
 
 class MemorySource:
@@ -35,6 +72,32 @@ class MemorySource:
         self.last_shown = None
         self.battle = BattleHP()
         self.state = BattleState()
+        self.last_good = {"party": [None] * 6, "enemy": [None] * 6}   # last bytes that decoded, per slot
+        self.previous = {"party": [None] * 6, "enemy": [None] * 6}    # bytes read last time, per slot
+
+    def _read_team(self, side: str, raws: list) -> list:
+        """Decode a team's 6 slots. A slot caught while the game is changing it (garbled
+        or failing its checksum) shows its last good reading instead of flickering, as long
+        as it's still the same Pokémon (same PID)."""
+        team = []
+        for i, raw in enumerate(raws):
+            last, before = self.last_good[side][i], self.previous[side][i]
+            self.previous[side][i] = raw
+            same = last is not None and raw[:4] == last[:4] and any(raw[:4])
+            mon = decode_live(raw)
+            if mon is None:
+                loose = parse(raw)
+                # Not plausible, but passes the checksum: trust it if it's a Pokémon we have
+                # no good reading of, or it reads the same twice in a row (a garbled read
+                # never repeats), so an unusual but real Pokémon still shows up.
+                if loose is not None and (not same or raw == before):
+                    mon = loose
+                elif same:
+                    team.append(decode_live(last) or parse(last))   # mid-update: last good reading
+                    continue
+            self.last_good[side][i] = raw if mon is not None else None
+            team.append(mon)
+        return team
 
     def _connect(self):
         pid = self.fixed_pid or find_desmume_pid(self.name_hint)
@@ -61,10 +124,12 @@ class MemorySource:
         except OSError:
             self.mem.close()
             self.mem, self.last_shown = None, None   # DeSmuME closed or game reset: search again
+            self.last_good = {"party": [None] * 6, "enemy": [None] * 6}
+            self.previous = {"party": [None] * 6, "enemy": [None] * 6}
             return None, "Lost DeSmuME. Searching again…"
 
-        party = [parse(b) for b in snap["party"]]
-        enemy = [parse(b) for b in snap["enemy"]]
+        party = self._read_team("party", snap["party"])
+        enemy = self._read_team("enemy", snap["enemy"])
         for m in party:
             if m is not None:   # remember the party's own values before battle HP overrides them
                 m._party_sync = (m.hp, m.max_hp, m.status, tuple(pp for _, pp in m.moves))

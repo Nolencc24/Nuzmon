@@ -57,10 +57,19 @@ def checksum(block_data: bytes) -> int:
     return sum(struct.unpack("<64H", block_data)) & 0xFFFF
 
 
+PARTY_OPEN, BOX_OPEN = 0x1, 0x2   # flags at 0x04: that section is decrypted in RAM right now
+
+
 def decrypt(raw: bytes) -> bytes:
-    """Encrypted 136/236-byte Pokémon -> decrypted, unshuffled bytes (same length)."""
-    pid, _, chk = struct.unpack_from("<IHH", raw, 0)
-    shuffled = _xor_words(raw[8:STORED_SIZE], chk)
+    """Encrypted 136/236-byte Pokémon -> decrypted, unshuffled bytes (same length).
+
+    While the game reads or changes a Pokémon (e.g. every step you take, for step
+    counters and poison), it decrypts it in place and sets a flag at 0x04: BOX_OPEN for
+    the 4 blocks (still shuffled), PARTY_OPEN for the level / HP / stats section. Those
+    sections are already plain text, so they mustn't be decrypted again.
+    """
+    pid, flags, chk = struct.unpack_from("<IHH", raw, 0)
+    shuffled = raw[8:STORED_SIZE] if flags & BOX_OPEN else _xor_words(raw[8:STORED_SIZE], chk)
     order = BLOCK_ORDER[shift_value(pid)]
     blocks = b"".join(
         shuffled[order.index(letter) * BLOCK_SIZE:(order.index(letter) + 1) * BLOCK_SIZE]
@@ -68,7 +77,8 @@ def decrypt(raw: bytes) -> bytes:
     )
     out = raw[:8] + blocks
     if len(raw) >= PARTY_SIZE:
-        out += _xor_words(raw[STORED_SIZE:PARTY_SIZE], pid)
+        party = raw[STORED_SIZE:PARTY_SIZE]
+        out += party if flags & PARTY_OPEN else _xor_words(party, pid)
     return out
 
 
